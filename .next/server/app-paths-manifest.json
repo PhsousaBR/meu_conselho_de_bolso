@@ -1,0 +1,16 @@
+{
+  "/_not-found": "app/_not-found.js",
+  "/convite/page": "app/convite/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/(main)/metas/page": "app/(main)/metas/page.js",
+  "/(main)/marketing/page": "app/(main)/marketing/page.js",
+  "/(main)/receitas/page": "app/(main)/receitas/page.js",
+  "/(main)/dashboard/page": "app/(main)/dashboard/page.js",
+  "/(main)/relatorios/page": "app/(main)/relatorios/page.js",
+  "/(main)/precificacao/page": "app/(main)/precificacao/page.js",
+  "/(main)/despesas/page": "app/(main)/despesas/page.js",
+  "/(main)/time/page": "app/(main)/time/page.js",
+  "/(main)/importar/page": "app/(main)/importar/page.js",
+  "/(main)/entidades/page": "app/(main)/entidades/page.js"
+}
