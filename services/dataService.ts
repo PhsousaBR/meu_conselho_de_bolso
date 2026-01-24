@@ -19,16 +19,39 @@ export const getActiveWorkspace = async (): Promise<{ workspace: Workspace | nul
         .eq('user_id', session.user.id)
         .limit(1)
         .single();
-    
+
     if (error || !members) {
         // Fallback: If migration hasn't run or something is wrong, try to find one where they are owner
         const { data: ws } = await supabase.from('workspaces').select('*').eq('owner_id', session.user.id).limit(1).maybeSingle();
         if (ws) return { workspace: ws, role: Role.OWNER, userId: session.user.id };
+
+        // AUTO-DEAL: If logged in but no workspace, create one automatically
+        try {
+            const { data: newWs, error: createError } = await supabase.from('workspaces').insert({
+                name: 'Meu Conselho',
+                owner_id: session.user.id,
+                created_at: new Date().toISOString()
+            }).select().single();
+
+            if (newWs && !createError) {
+                // Also insert the member record
+                await supabase.from('workspace_members').insert({
+                    workspace_id: newWs.id,
+                    user_id: session.user.id,
+                    role: Role.OWNER
+                });
+                return { workspace: newWs as unknown as Workspace, role: Role.OWNER, userId: session.user.id };
+            }
+        } catch (err) {
+            console.error("Auto-create workspace failed:", err);
+        }
+
+        // If creation failed, we return properly null (will trigger error in UI, not silent offline)
         return { workspace: null, role: null, userId: session.user.id };
     }
 
-    return { 
-        workspace: members.workspace as unknown as Workspace, 
+    return {
+        workspace: members.workspace as unknown as Workspace,
         role: members.role as Role,
         userId: session.user.id
     };
@@ -36,8 +59,8 @@ export const getActiveWorkspace = async (): Promise<{ workspace: Workspace | nul
 
 const getLocalDB = () => {
     const str = localStorage.getItem(LOCAL_KEY);
-    const defaults = { 
-        clients: [], services: [], income: [], expenses: [], goals: [], campaigns: [], fixed_costs: [], pricing_settings: null, sales: [] 
+    const defaults = {
+        clients: [], services: [], income: [], expenses: [], goals: [], campaigns: [], fixed_costs: [], pricing_settings: null, sales: []
     };
     if (!str) return defaults;
     try { return { ...defaults, ...JSON.parse(str) }; } catch (e) { return defaults; }
@@ -51,12 +74,12 @@ const generateId = () => Math.random().toString(36).substring(2, 9);
 export const getWorkspaceMembers = async (): Promise<WorkspaceMember[]> => {
     const { workspace } = await getActiveWorkspace();
     if (!workspace) return [];
-    
+
     const { data, error } = await supabase
         .from('workspace_members')
         .select('*, profile:profiles(*)')
         .eq('workspace_id', workspace.id);
-    
+
     if (error) throw error;
     return data || [];
 };
@@ -173,8 +196,8 @@ export const updateClient = async (id: string, updates: Partial<Client>) => {
         return data;
     } else {
         const db = getLocalDB();
-        const i = db.clients.findIndex((c:any)=>c.id===id);
-        if(i!==-1){db.clients[i]={...db.clients[i],...updates};saveLocalDB(db);return db.clients[i];}
+        const i = db.clients.findIndex((c: any) => c.id === id);
+        if (i !== -1) { db.clients[i] = { ...db.clients[i], ...updates }; saveLocalDB(db); return db.clients[i]; }
         return null;
     }
 };
@@ -185,7 +208,7 @@ export const deleteClient = async (id: string) => {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
         await supabase.from('clients').delete().eq('id', id).eq('workspace_id', workspace.id);
     } else {
-        const db = getLocalDB(); db.clients=db.clients.filter((c:any)=>c.id!==id); saveLocalDB(db);
+        const db = getLocalDB(); db.clients = db.clients.filter((c: any) => c.id !== id); saveLocalDB(db);
     }
 };
 
@@ -220,8 +243,8 @@ export const updateService = async (id: string, updates: Partial<Service>) => {
         const { data } = await supabase.from('services').update(updates).eq('id', id).eq('workspace_id', workspace.id).select().single();
         return data;
     } else {
-        const db = getLocalDB(); const i = db.services.findIndex((s:any)=>s.id===id);
-        if(i!==-1){db.services[i]={...db.services[i],...updates};saveLocalDB(db);return db.services[i];}
+        const db = getLocalDB(); const i = db.services.findIndex((s: any) => s.id === id);
+        if (i !== -1) { db.services[i] = { ...db.services[i], ...updates }; saveLocalDB(db); return db.services[i]; }
         return null;
     }
 };
@@ -232,7 +255,7 @@ export const deleteService = async (id: string) => {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
         await supabase.from('services').delete().eq('id', id).eq('workspace_id', workspace.id);
     } else {
-        const db = getLocalDB(); db.services=db.services.filter((s:any)=>s.id!==id); saveLocalDB(db);
+        const db = getLocalDB(); db.services = db.services.filter((s: any) => s.id !== id); saveLocalDB(db);
     }
 };
 
@@ -251,10 +274,10 @@ export const createCampaign = async (c: Partial<Campaign>): Promise<Campaign | n
     const { workspace, role, userId } = await getActiveWorkspace();
     if (workspace) {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
-        const { data } = await supabase.from('campaigns').insert([{...c, user_id: userId, workspace_id: workspace.id}]).select().single();
+        const { data } = await supabase.from('campaigns').insert([{ ...c, user_id: userId, workspace_id: workspace.id }]).select().single();
         return data;
     } else {
-        const db = getLocalDB(); const nc = {...c, id: generateId(), user_id: 'local', created_at: new Date().toISOString()}; db.campaigns.push(nc); saveLocalDB(db); return nc as Campaign;
+        const db = getLocalDB(); const nc = { ...c, id: generateId(), user_id: 'local', created_at: new Date().toISOString() }; db.campaigns.push(nc); saveLocalDB(db); return nc as Campaign;
     }
 };
 
@@ -265,8 +288,8 @@ export const updateCampaign = async (id: string, u: Partial<Campaign>) => {
         const { data } = await supabase.from('campaigns').update(u).eq('id', id).eq('workspace_id', workspace.id).select().single();
         return data;
     } else {
-        const db = getLocalDB(); const i = db.campaigns.findIndex((c:any)=>c.id===id);
-        if(i!==-1){db.campaigns[i]={...db.campaigns[i],...u};saveLocalDB(db);return db.campaigns[i];} return null;
+        const db = getLocalDB(); const i = db.campaigns.findIndex((c: any) => c.id === id);
+        if (i !== -1) { db.campaigns[i] = { ...db.campaigns[i], ...u }; saveLocalDB(db); return db.campaigns[i]; } return null;
     }
 };
 
@@ -276,7 +299,7 @@ export const deleteCampaign = async (id: string) => {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
         await supabase.from('campaigns').delete().eq('id', id).eq('workspace_id', workspace.id);
     } else {
-        const db = getLocalDB(); db.campaigns=db.campaigns.filter((c:any)=>c.id!==id); saveLocalDB(db);
+        const db = getLocalDB(); db.campaigns = db.campaigns.filter((c: any) => c.id !== id); saveLocalDB(db);
     }
 };
 
@@ -286,16 +309,16 @@ export const createSale = async (
     receivablesData: Partial<Income>[]
 ): Promise<void> => {
     const { workspace, role, userId } = await getActiveWorkspace();
-    
+
     if (workspace) {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
-        
+
         const { data: sale, error: saleError } = await supabase.from('sales').insert({
             user_id: userId,
             workspace_id: workspace.id,
             ...saleData
         }).select().single();
-        
+
         if (saleError) throw saleError;
 
         const incomesToInsert = receivablesData.map(inc => ({
@@ -326,10 +349,10 @@ export const getIncomes = async (): Promise<Income[]> => {
     const { workspace } = await getActiveWorkspace();
     if (workspace) {
         const { data } = await supabase
-          .from('income')
-          .select('*, client:clients(*), service:services(*), campaign:campaigns(*)')
-          .eq('workspace_id', workspace.id)
-          .order('date', { ascending: false });
+            .from('income')
+            .select('*, client:clients(*), service:services(*), campaign:campaigns(*)')
+            .eq('workspace_id', workspace.id)
+            .order('date', { ascending: false });
         return data || [];
     } else {
         const db = getLocalDB();
@@ -442,8 +465,8 @@ export const updateFixedCost = async (id: string, updates: Partial<FixedCost>) =
         const { data } = await supabase.from('fixed_costs').update(updates).eq('id', id).eq('workspace_id', workspace.id).select().single();
         return data;
     } else {
-        const db = getLocalDB(); const i = db.fixed_costs.findIndex((f:any)=>f.id===id);
-        if(i!==-1){db.fixed_costs[i]={...db.fixed_costs[i],...updates};saveLocalDB(db);return db.fixed_costs[i];} return null;
+        const db = getLocalDB(); const i = db.fixed_costs.findIndex((f: any) => f.id === id);
+        if (i !== -1) { db.fixed_costs[i] = { ...db.fixed_costs[i], ...updates }; saveLocalDB(db); return db.fixed_costs[i]; } return null;
     }
 };
 
@@ -465,9 +488,9 @@ export const getPricingSettings = async (): Promise<PricingSettings> => {
         // But ideally search by workspace_id
         const { data } = await supabase.from('pricing_settings').select('*').eq('workspace_id', workspace.id).maybeSingle();
         if (!data) {
-             // Create default
-             const { data: newData } = await supabase.from('pricing_settings').insert({ user_id: userId, workspace_id: workspace.id }).select().single();
-             return newData || { user_id: 'temp', tax_percent: 6, default_margin_percent: 30, workable_hours_month: 120, nonbillable_percent: 30, monthly_goal: 10000, mp_default_fee_percent: 4.99, updated_at: new Date().toISOString() };
+            // Create default
+            const { data: newData } = await supabase.from('pricing_settings').insert({ user_id: userId, workspace_id: workspace.id }).select().single();
+            return newData || { user_id: 'temp', tax_percent: 6, default_margin_percent: 30, workable_hours_month: 120, nonbillable_percent: 30, monthly_goal: 10000, mp_default_fee_percent: 4.99, updated_at: new Date().toISOString() };
         }
         return data;
     } else {
@@ -502,26 +525,26 @@ export const setGoal = async (year: number, month: number, amount: number, type:
     if (workspace) {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');
         const { data } = await supabase.from('goals').upsert(
-            { user_id: userId, workspace_id: workspace.id, year, month, target_amount: amount, target_type: type }, 
+            { user_id: userId, workspace_id: workspace.id, year, month, target_amount: amount, target_type: type },
             { onConflict: 'workspace_id, year, month' }
         ).select().single();
         return data;
     } else {
         const db = getLocalDB(); const i = db.goals.findIndex((g: any) => g.year === year && g.month === month);
-        const gd = {user_id: 'local',year,month,target_amount: amount,target_type: type,created_at: new Date().toISOString()};
-        if (i >= 0) { db.goals[i] = { ...db.goals[i], ...gd }; saveLocalDB(db); return db.goals[i]; } 
+        const gd = { user_id: 'local', year, month, target_amount: amount, target_type: type, created_at: new Date().toISOString() };
+        if (i >= 0) { db.goals[i] = { ...db.goals[i], ...gd }; saveLocalDB(db); return db.goals[i]; }
         else { const n = { ...gd, id: generateId() }; db.goals.push(n); saveLocalDB(db); return n; }
     }
 };
 
 export const distributeAnnualGoal = async (
-    year: number, 
-    totalAmount: number, 
-    type: GoalType, 
+    year: number,
+    totalAmount: number,
+    type: GoalType,
     mode: 'uniform' | 'seasonal'
 ): Promise<void> => {
     const { workspace, role, userId } = await getActiveWorkspace();
-    
+
     // Check permissions
     if (workspace && role !== Role.OWNER) throw new Error('Apenas dono pode definir metas.');
 
@@ -532,7 +555,7 @@ export const distributeAnnualGoal = async (
         // Try to fetch previous year's income to determine seasonality
         const prevYear = year - 1;
         let incomes: Income[] = [];
-        
+
         if (workspace) {
             const { data } = await supabase
                 .from('income')
@@ -585,7 +608,7 @@ export const distributeAnnualGoal = async (
             target_amount: amount,
             target_type: type
         }));
-        
+
         const { error } = await supabase.from('goals').upsert(goalsToUpsert, { onConflict: 'workspace_id, year, month' });
         if (error) throw error;
 
@@ -622,5 +645,5 @@ export const seedHistoricalRevenue = async (): Promise<string[]> => {
     // Keeping this brief to save output space, but the logic follows the pattern:
     // If workspace: insert with workspace_id
     // If local: insert local
-    return ["Função simplificada na migração."]; 
+    return ["Função simplificada na migração."];
 };

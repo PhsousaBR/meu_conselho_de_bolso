@@ -10,7 +10,9 @@
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: #f8fafc; /* slate-50 */
+  background: #f8fafc;
+  /* slate-50 */
+  overflow-x: hidden;
 }
 
 @layer utilities {

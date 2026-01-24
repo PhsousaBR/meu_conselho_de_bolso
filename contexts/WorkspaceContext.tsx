@@ -18,7 +18,7 @@ const WorkspaceContext = createContext<WorkspaceContextType>({
   workspace: null,
   role: null,
   loading: true,
-  refreshWorkspace: async () => {},
+  refreshWorkspace: async () => { },
   isOwner: false,
   isViewer: false,
 });
@@ -43,23 +43,23 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   useEffect(() => {
     refreshWorkspace();
-    
+
     // Listen to Auth changes to refresh workspace context
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-        refreshWorkspace();
+      refreshWorkspace();
     });
     return () => subscription.unsubscribe();
   }, []);
 
   return (
-    <WorkspaceContext.Provider value={{ 
-        workspace, 
-        role, 
-        loading, 
-        refreshWorkspace,
-        // Treat as owner if explicitly owner OR if no workspace (local/offline mode)
-        isOwner: role === Role.OWNER || !workspace,
-        isViewer: role === Role.VIEWER
+    <WorkspaceContext.Provider value={{
+      workspace,
+      role,
+      loading,
+      refreshWorkspace,
+      // Treat as owner if explicitly owner OR if no workspace (local/offline mode)
+      isOwner: role === Role.OWNER,
+      isViewer: role === Role.VIEWER
     }}>
       {children}
     </WorkspaceContext.Provider>
