@@ -30,11 +30,10 @@ export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onChange }) => (
       <button
         key={tab}
         onClick={() => onChange(tab)}
-        className={`pb-3 text-sm font-medium transition-colors whitespace-nowrap ${
-          activeTab === tab
-            ? 'border-b-2 border-indigo-600 text-indigo-600'
-            : 'text-slate-500 hover:text-slate-700'
-        }`}
+        className={`pb-3 text-sm font-medium transition-colors whitespace-nowrap ${activeTab === tab
+          ? 'border-b-2 border-indigo-600 text-indigo-600'
+          : 'text-slate-500 hover:text-slate-700'
+          }`}
       >
         {tab}
       </button>
@@ -50,18 +49,33 @@ interface DrawerProps {
 }
 
 export const Drawer: React.FC<DrawerProps> = ({ title, isOpen, onClose, children }) => {
+  React.useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="fixed inset-0 bg-black/20 backdrop-blur-sm transition-opacity" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white h-full shadow-2xl p-6 overflow-y-auto transform transition-transform animate-in slide-in-from-right duration-300">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+    <div className="fixed inset-0 z-[100] flex justify-end mt-0">
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose} />
+
+      {/* Drawer Content */}
+      <div className="relative w-full h-full md:max-w-md bg-white shadow-2xl overflow-hidden flex flex-col transform transition-transform animate-in slide-in-from-right duration-300">
+        <div className="flex justify-between items-center p-4 md:p-6 border-b border-slate-100 flex-shrink-0 bg-white">
+          <h2 className="text-lg md:text-xl font-bold text-slate-900">{title}</h2>
+          <button onClick={onClose} className="p-2 -mr-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-full transition-colors">
             <ICONS.Close />
           </button>
         </div>
-        {children}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6">
+          {children}
+        </div>
       </div>
     </div>
   );

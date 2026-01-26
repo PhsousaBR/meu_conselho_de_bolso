@@ -6,13 +6,16 @@ import { PageHeader, Tabs } from './Shared';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { ICONS, MONTH_NAMES } from '../constants';
 
+import { useWorkspace } from '../contexts/WorkspaceContext';
+
 type ReportType = 'Resumo' | 'Receitas' | 'Despesas' | 'Marketing';
 
 const ReportsPage: React.FC = () => {
+    const { workspace } = useWorkspace(); // Get workspace
     const [reportType, setReportType] = useState<ReportType>('Resumo');
     const [periodA, setPeriodA] = useState('this_month');
     const [compare, setCompare] = useState(false);
-    
+
     // Data State
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -31,12 +34,12 @@ const ReportsPage: React.FC = () => {
             setCampaigns(cmp);
             setLoading(false);
         };
-        load();
-    }, []);
+        if (workspace?.id) load();
+    }, [workspace?.id]);
 
     useEffect(() => {
         if (loading) return;
-        
+
         const now = new Date();
         const getRange = (preset: string, offset = 0): [Date, Date] => {
             let start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -61,7 +64,7 @@ const ReportsPage: React.FC = () => {
             // Apply Compare Offset (Shift full range back)
             if (offset > 0) {
                 const diff = end.getTime() - start.getTime();
-                end = new Date(start.getTime() - 24*60*60*1000); // 1 day before start
+                end = new Date(start.getTime() - 24 * 60 * 60 * 1000); // 1 day before start
                 start = new Date(end.getTime() - diff);
             }
             return [start, end];
@@ -86,8 +89,8 @@ const ReportsPage: React.FC = () => {
         };
 
         // Filter Income (Received, ignore transfers if marked)
-        const inc = incomes.filter(i => 
-            filterDate(i.date) && 
+        const inc = incomes.filter(i =>
+            filterDate(i.date) &&
             i.status === IncomeStatus.RECEIVED
         );
 
@@ -96,9 +99,9 @@ const ReportsPage: React.FC = () => {
 
         // Filter Campaigns (Active in period)
         const cmp = campaigns.filter(c => {
-             const cStart = new Date(c.start_date);
-             const cEnd = c.end_date ? new Date(c.end_date) : new Date();
-             return (cStart <= end && cEnd >= start);
+            const cStart = new Date(c.start_date);
+            const cEnd = c.end_date ? new Date(c.end_date) : new Date();
+            return (cStart <= end && cEnd >= start);
         });
 
         // UPDATED: Use net_amount if available
@@ -134,8 +137,8 @@ const ReportsPage: React.FC = () => {
             countIncomes: inc.length,
             countExpenses: exp.length,
             revenueByMonth,
-            byClient: Object.entries(byClient).sort((a:any,b:any) => b[1]-a[1]).slice(0,5),
-            byCategory: Object.entries(byCategory).sort((a:any,b:any) => b[1]-a[1]).slice(0,5),
+            byClient: Object.entries(byClient).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5),
+            byCategory: Object.entries(byCategory).sort((a: any, b: any) => b[1] - a[1]).slice(0, 5),
             campaigns: cmp
         };
     };
@@ -151,7 +154,7 @@ const ReportsPage: React.FC = () => {
 
     const handleExportCSV = () => {
         if (!dataA) return;
-        
+
         const rows = [
             ['Relatório', reportType],
             ['Período', `${dataA.start.toLocaleDateString()} - ${dataA.end.toLocaleDateString()}`],
@@ -168,9 +171,9 @@ const ReportsPage: React.FC = () => {
             ...dataA.byCategory.map((c: any) => [c[0], c[1]])
         ];
 
-        let csvContent = "data:text/csv;charset=utf-8," 
+        let csvContent = "data:text/csv;charset=utf-8,"
             + rows.map(e => e.join(",")).join("\n");
-        
+
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
@@ -183,40 +186,40 @@ const ReportsPage: React.FC = () => {
     if (!dataA) return <div className="p-8 text-center text-slate-500">Carregando dados...</div>;
 
     return (
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="max-w-7xl mx-auto space-y-4 md:space-y-6 overflow-x-hidden min-w-0 w-full">
             <div className="print:hidden">
-                <PageHeader 
-                    title="Relatórios & Comparativos" 
+                <PageHeader
+                    title="Relatórios & Comparativos"
                     description="Análise profunda do desempenho financeiro."
                     actions={
                         <div className="flex gap-2">
-                            <button onClick={handleExportCSV} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-medium text-sm flex items-center gap-2">
-                                <ICONS.FileText /> Exportar CSV
+                            <button onClick={handleExportCSV} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 md:px-4 md:py-2 rounded-lg hover:bg-slate-50 font-medium text-xs md:text-sm flex items-center gap-2">
+                                <ICONS.FileText /> <span className="hidden md:inline">Exportar CSV</span><span className="md:hidden">CSV</span>
                             </button>
-                            <button onClick={handlePrint} className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 font-medium text-sm flex items-center gap-2">
-                                <span>Imprimir / PDF</span>
+                            <button onClick={handlePrint} className="bg-indigo-600 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg hover:bg-indigo-700 font-medium text-xs md:text-sm flex items-center gap-2">
+                                <span>Imprimir</span>
                             </button>
                         </div>
                     }
                 />
 
                 {/* Filters */}
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-                    <div className="flex gap-4 items-center">
-                        <select 
-                            value={reportType} 
+                <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row flex-wrap gap-4 items-start md:items-center justify-between">
+                    <div className="flex flex-col md:flex-row gap-2 md:gap-4 w-full md:w-auto">
+                        <select
+                            value={reportType}
                             onChange={e => setReportType(e.target.value as ReportType)}
-                            className="border border-slate-300 rounded-lg p-2 text-slate-900 bg-white"
+                            className="border border-slate-300 rounded-lg p-2 text-slate-900 bg-white w-full md:w-auto"
                         >
                             <option value="Resumo">Resumo Executivo</option>
-                            <option value="Receitas">Detalhamento Receitas</option>
-                            <option value="Despesas">Detalhamento Despesas</option>
+                            <option value="Receitas">Receitas</option>
+                            <option value="Despesas">Despesas</option>
                             <option value="Marketing">Marketing</option>
                         </select>
-                        <select 
-                            value={periodA} 
+                        <select
+                            value={periodA}
                             onChange={e => setPeriodA(e.target.value)}
-                            className="border border-slate-300 rounded-lg p-2 text-slate-900 bg-white"
+                            className="border border-slate-300 rounded-lg p-2 text-slate-900 bg-white w-full md:w-auto"
                         >
                             <option value="this_month">Este Mês</option>
                             <option value="last_month">Mês Passado</option>
@@ -230,7 +233,7 @@ const ReportsPage: React.FC = () => {
                         <div className={`w-10 h-6 rounded-full p-1 transition-colors ${compare ? 'bg-indigo-600' : 'bg-slate-300'}`} onClick={() => setCompare(!compare)}>
                             <div className={`bg-white w-4 h-4 rounded-full shadow-sm transform transition-transform ${compare ? 'translate-x-4' : ''}`}></div>
                         </div>
-                        <span className="text-sm font-medium text-slate-700">Comparar com período anterior</span>
+                        <span className="text-sm font-medium text-slate-700">Comparar</span>
                     </label>
                 </div>
             </div>
@@ -281,7 +284,7 @@ const ReportsPage: React.FC = () => {
                                     <span className="font-bold">R$ {item[1].toLocaleString('pt-BR')}</span>
                                 </div>
                                 <div className="w-full bg-slate-100 rounded-full h-2">
-                                    <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${(item[1]/dataA.totalRevenue)*100}%` }}></div>
+                                    <div className="bg-emerald-500 h-2 rounded-full" style={{ width: `${(item[1] / dataA.totalRevenue) * 100}%` }}></div>
                                 </div>
                             </div>
                         ))}
@@ -298,22 +301,22 @@ const ReportsPage: React.FC = () => {
                             <li className="flex gap-2">
                                 <span className="font-bold">&bull;</span>
                                 <span>
-                                    Sua receita {getGrowth(dataA.totalRevenue, dataB.totalRevenue) >= 0 ? 'cresceu' : 'caiu'} 
+                                    Sua receita {getGrowth(dataA.totalRevenue, dataB.totalRevenue) >= 0 ? 'cresceu' : 'caiu'}
                                     <strong> {Math.abs(getGrowth(dataA.totalRevenue, dataB.totalRevenue)).toFixed(1)}%</strong> em relação ao período anterior.
                                 </span>
                             </li>
                         )}
                         <li className="flex gap-2">
-                             <span className="font-bold">&bull;</span>
-                             <span>
-                                 Sua maior despesa foi <strong>{dataA.byCategory[0]?.[0] || 'N/A'}</strong> 
-                                 (R$ {dataA.byCategory[0]?.[1]?.toLocaleString('pt-BR')}).
-                             </span>
+                            <span className="font-bold">&bull;</span>
+                            <span>
+                                Sua maior despesa foi <strong>{dataA.byCategory[0]?.[0] || 'N/A'}</strong>
+                                (R$ {dataA.byCategory[0]?.[1]?.toLocaleString('pt-BR')}).
+                            </span>
                         </li>
                         <li className="flex gap-2">
                             <span className="font-bold">&bull;</span>
                             <span>
-                                Margem de Lucro atual: <strong>{dataA.totalRevenue > 0 ? ((dataA.netIncome/dataA.totalRevenue)*100).toFixed(1) : 0}%</strong>.
+                                Margem de Lucro atual: <strong>{dataA.totalRevenue > 0 ? ((dataA.netIncome / dataA.totalRevenue) * 100).toFixed(1) : 0}%</strong>.
                             </span>
                         </li>
                     </ul>

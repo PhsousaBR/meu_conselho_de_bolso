@@ -8,53 +8,111 @@ const LOCAL_KEY = 'conselho_bolso_db';
 
 // In a real app, this would be a React Context. For this simple service layer, 
 // we will fetch the active workspace dynamically.
+// Local Storage Key for Workspace Persistence
+const WORKSPACE_KEY = 'conselho_active_workspace_id';
+
+export const getAvailableWorkspaces = async (): Promise<{ workspace: Workspace, role: Role, ownerName: string }[]> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return [];
+
+    const { data: members, error } = await supabase
+        .from('workspace_members')
+        // We need the workspace details AND the owner's profile to display "Workspace de [Nome]"
+        // But workspace.owner_id is just an ID. We need to fetch that user's profile.
+        // Supabase join syntax: workspace:workspaces ( *, owner:profiles!owner_id (*) )
+        // Note: Check if 'profiles' has foreign key from workspaces.owner_id. Usually it's opposite.
+        // Workaround: We fetch workspace members, then we might need another fetch for owners if not easy.
+        // Let's try select with nested resource if relation exists.
+        // Assuming 'workspaces' has 'owner_id' -> 'auth.users' which is hard to join?
+        // Actually usually 'profiles' matches 'auth.users'.
+        // Let's assume we can't easily join owner profile from workspace directly if no FK set up in Supabase schema.
+        // SAFEST BET WITHOUT SCHEMA CHANGE: Fetch workspaces, then fetch owner profiles manually.
+        .select('role, workspace:workspaces(*)');
+
+    if (error || !members) return [];
+
+    // ENRICHMENT: Get owner names for all workspaces where I am NOT the owner
+    const viewersWorkspaces = members.filter((m: any) => m.role !== 'owner');
+    const ownerIds = [...new Set(viewersWorkspaces.map((m: any) => m.workspace.owner_id))];
+
+    let ownerMap: Record<string, string> = {};
+    if (ownerIds.length > 0) {
+        const { data: owners } = await supabase.from('profiles').select('id, full_name, email').in('id', ownerIds);
+        if (owners) {
+            owners.forEach(o => {
+                ownerMap[o.id] = o.full_name || o.email?.split('@')[0] || 'Desconhecido';
+            });
+        }
+    }
+
+    return members.map((m: any) => ({
+        workspace: m.workspace,
+        role: m.role,
+        ownerName: m.role === 'owner' ? 'Mim' : (ownerMap[m.workspace.owner_id] || 'Outro')
+    }));
+};
+
 export const getActiveWorkspace = async (): Promise<{ workspace: Workspace | null, role: Role | null, userId: string | null }> => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return { workspace: null, role: null, userId: null };
 
-    // Get the first workspace the user is a member of (MVP: Single Workspace support)
-    const { data: members, error } = await supabase
-        .from('workspace_members')
-        .select('role, workspace:workspaces(*)')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .single();
+    // 1. Get all memberships
+    const memberships = await getAvailableWorkspaces();
 
-    if (error || !members) {
-        // Fallback: If migration hasn't run or something is wrong, try to find one where they are owner
-        const { data: ws } = await supabase.from('workspaces').select('*').eq('owner_id', session.user.id).limit(1).maybeSingle();
-        if (ws) return { workspace: ws, role: Role.OWNER, userId: session.user.id };
+    // 2. Check Local Storage
+    const storedId = typeof window !== 'undefined' ? localStorage.getItem(WORKSPACE_KEY) : null;
 
-        // AUTO-DEAL: If logged in but no workspace, create one automatically
-        try {
-            const { data: newWs, error: createError } = await supabase.from('workspaces').insert({
-                name: 'Meu Conselho',
-                owner_id: session.user.id,
-                created_at: new Date().toISOString()
-            }).select().single();
+    let active = null;
 
-            if (newWs && !createError) {
-                // Also insert the member record
-                await supabase.from('workspace_members').insert({
-                    workspace_id: newWs.id,
-                    user_id: session.user.id,
-                    role: Role.OWNER
-                });
-                return { workspace: newWs as unknown as Workspace, role: Role.OWNER, userId: session.user.id };
-            }
-        } catch (err) {
-            console.error("Auto-create workspace failed:", err);
-        }
-
-        // If creation failed, we return properly null (will trigger error in UI, not silent offline)
-        return { workspace: null, role: null, userId: session.user.id };
+    if (storedId) {
+        // Strict consistency check
+        active = memberships.find(m => m.workspace.id === storedId);
     }
 
-    return {
-        workspace: members.workspace as unknown as Workspace,
-        role: members.role as Role,
-        userId: session.user.id
-    };
+    // 3. Fallback to first one if no stored valid ID or stored ID invalid
+    if (!active && memberships.length > 0) {
+        active = memberships[0];
+        // Auto-update storage if falling back
+        if (typeof window !== 'undefined') localStorage.setItem(WORKSPACE_KEY, active.workspace.id);
+    }
+
+    if (active) {
+        return { workspace: active.workspace, role: active.role, userId: session.user.id };
+    }
+
+    // 4. No memberships? Fallback: Owned (Legacy/Migration safety)
+    // This part basically creates a membership if you are an owner but not in members table (should rarely happen in new logic)
+    if (!active) {
+        const { data: ws } = await supabase.from('workspaces').select('*').eq('owner_id', session.user.id).limit(1).maybeSingle();
+        if (ws) {
+            await supabase.from('workspace_members').upsert({ workspace_id: ws.id, user_id: session.user.id, role: Role.OWNER }, { onConflict: 'workspace_id, user_id' });
+            return { workspace: ws, role: Role.OWNER, userId: session.user.id };
+        }
+    }
+
+    // AUTO-DEAL: If logged in but no workspace, create one automatically
+    try {
+        const { data: newWs, error: createError } = await supabase.from('workspaces').insert({
+            name: 'Meu Conselho',
+            owner_id: session.user.id,
+            created_at: new Date().toISOString()
+        }).select().single();
+
+        if (newWs && !createError) {
+            // Also insert the member record
+            await supabase.from('workspace_members').insert({
+                workspace_id: newWs.id,
+                user_id: session.user.id,
+                role: Role.OWNER
+            });
+            return { workspace: newWs as unknown as Workspace, role: Role.OWNER, userId: session.user.id };
+        }
+    } catch (err) {
+        console.error("Auto-create workspace failed:", err);
+    }
+
+    // If creation failed, we return properly null (will trigger error in UI, not silent offline)
+    return { workspace: null, role: null, userId: session.user.id };
 };
 
 const getLocalDB = () => {

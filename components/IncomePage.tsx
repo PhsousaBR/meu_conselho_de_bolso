@@ -1,13 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { getIncomes, createSale, getClients, getServices, deleteIncome, getCampaigns, getPricingSettings, updateIncome } from '../services/dataService';
+import { getIncomes, createClient, createSale, getClients, getServices, deleteIncome, getCampaigns, getPricingSettings, updateIncome } from '../services/dataService';
 import { Income, Client, Service, IncomeStatus, Campaign, PaymentMethodType, PricingSettings } from '../types';
 import { PageHeader, Drawer, Tabs } from './Shared';
+import { Combobox } from './Combobox';
 import { ICONS, MONTH_NAMES } from '../constants';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { MobileDataList } from './MobileDataList';
 
 const IncomePage: React.FC = () => {
-    const { isOwner } = useWorkspace();
+    const { isOwner, workspace } = useWorkspace(); // Get workspace from context
     const [activeTab, setActiveTab] = useState('Lançamentos');
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -22,7 +24,7 @@ const IncomePage: React.FC = () => {
 
     // Drawer Form
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    
+
     // Form State
     const [clientId, setClientId] = useState('');
     const [serviceId, setServiceId] = useState('');
@@ -31,19 +33,19 @@ const IncomePage: React.FC = () => {
     const [notes, setNotes] = useState('');
     const [campaignId, setCampaignId] = useState('');
     const [newCustomer, setNewCustomer] = useState(false);
-    
+
     // Payment Specifics
     // 1. Cash / Generic
     const [cashDate, setCashDate] = useState(new Date().toISOString().split('T')[0]);
     const [cashReceived, setCashReceived] = useState(true); // true = RECEIVED, false = PENDING
-    
+
     // 2. Split
     const [splitDate1, setSplitDate1] = useState(new Date().toISOString().split('T')[0]);
     const [splitDate2, setSplitDate2] = useState('');
-    
+
     // 3. Card (MP)
     const [feePercent, setFeePercent] = useState('4.99');
-    
+
     const fetchData = async () => {
         const [inc, cli, srv, cmp, set] = await Promise.all([
             getIncomes(), getClients(), getServices(), getCampaigns(), getPricingSettings()
@@ -59,7 +61,9 @@ const IncomePage: React.FC = () => {
         setLoading(false);
     };
 
-    useEffect(() => { fetchData(); }, []);
+    useEffect(() => {
+        if (workspace?.id) fetchData();
+    }, [workspace?.id]);
 
     const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const sId = e.target.value;
@@ -73,6 +77,21 @@ const IncomePage: React.FC = () => {
         // Reset defaults when switching
         if (method === PaymentMethodType.CARD_MP && pricingSettings) {
             setFeePercent(pricingSettings.mp_default_fee_percent.toString());
+        }
+    };
+
+    const handleCreateClient = async (name: string) => {
+        if (!isOwner) return;
+        try {
+            // Need to import createClient if not available in closure, but it is imported at top
+            const newClient = await createClient({ name });
+            if (newClient) {
+                setClients(prev => [...prev, newClient]);
+                setClientId(newClient.id);
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Erro ao criar cliente.');
         }
     };
 
@@ -109,7 +128,7 @@ const IncomePage: React.FC = () => {
         } else if (paymentMethod === PaymentMethodType.SPLIT_50_50) {
             if (!splitDate2) return alert('Data de entrega é obrigatória para 50/50');
             const half = total / 2;
-            
+
             // Entry (50%) - Received
             receivables.push({
                 ...baseIncomeData,
@@ -122,7 +141,7 @@ const IncomePage: React.FC = () => {
                 installment_count: 2,
                 payment_method: '50/50 - Entrada'
             });
-            
+
             // Delivery (50%) - Pending
             receivables.push({
                 ...baseIncomeData,
@@ -139,7 +158,7 @@ const IncomePage: React.FC = () => {
             const fee = parseFloat(feePercent) || 0;
             const feeVal = total * (fee / 100);
             const net = total - feeVal;
-            
+
             receivables.push({
                 ...baseIncomeData,
                 date: cashDate, // Received now usually
@@ -162,7 +181,7 @@ const IncomePage: React.FC = () => {
                 gross_total: total,
                 payment_method: paymentMethod
             }, receivables);
-            
+
             setIsDrawerOpen(false);
             resetForm();
             fetchData();
@@ -184,26 +203,26 @@ const IncomePage: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if(!isOwner) return;
-        if(confirm('Excluir parcela?')) {
+        if (!isOwner) return;
+        if (confirm('Excluir parcela?')) {
             await deleteIncome(id);
             fetchData();
         }
     };
 
     const handleMarkReceived = async (inc: Income) => {
-        if(!isOwner) return;
+        if (!isOwner) return;
         if (confirm('Marcar como recebido hoje?')) {
-            await updateIncome(inc.id, { 
+            await updateIncome(inc.id, {
                 status: IncomeStatus.RECEIVED,
-                date: new Date().toISOString().split('T')[0] 
+                date: new Date().toISOString().split('T')[0]
             });
             fetchData();
         }
     };
 
     const filteredIncomes = incomes.filter(inc => {
-        const matchesSearch = 
+        const matchesSearch =
             (inc.client?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             (inc.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
         const matchesStatus = filterStatus === 'all' || inc.status === filterStatus;
@@ -214,7 +233,7 @@ const IncomePage: React.FC = () => {
     const cardPreview = () => {
         const tot = parseFloat(grossTotal) || 0;
         const fee = parseFloat(feePercent) || 0;
-        const feeVal = tot * (fee/100);
+        const feeVal = tot * (fee / 100);
         return { feeVal, net: tot - feeVal };
     };
 
@@ -222,7 +241,7 @@ const IncomePage: React.FC = () => {
     const getForecastData = () => {
         const now = new Date();
         const pending = incomes.filter(i => i.status === IncomeStatus.PENDING && new Date(i.date) >= now);
-        
+
         // Group by Month
         const grouped: any = {};
         pending.forEach(inc => {
@@ -238,13 +257,13 @@ const IncomePage: React.FC = () => {
             return (a.year - b.year) || (a.month - b.month);
         });
     };
-    
+
     const forecast = getForecastData();
 
     return (
         <div className="max-w-7xl mx-auto">
-            <PageHeader 
-                title="Receitas & Vendas" 
+            <PageHeader
+                title="Receitas & Vendas"
                 description="Controle avançado de recebíveis e fluxo de caixa."
                 actions={
                     isOwner && (
@@ -259,91 +278,150 @@ const IncomePage: React.FC = () => {
 
             {activeTab === 'Lançamentos' && (
                 <>
-                <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
-                    <div className="relative w-full md:w-96">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                            <ICONS.Search />
+
+
+
+                    <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
+                        {/* Filters... same as before */}
+                        <div className="relative w-full md:w-96">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                                <ICONS.Search />
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="Buscar por cliente ou descrição..."
+                                className="pl-10 w-full border border-slate-300 rounded-lg py-2 focus:ring-2 focus:ring-emerald-500 outline-none text-slate-900 bg-white"
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                            />
                         </div>
-                        <input 
-                            type="text"
-                            placeholder="Buscar por cliente ou descrição..."
-                            className="pl-10 w-full border border-slate-300 rounded-lg py-2 focus:ring-2 focus:ring-emerald-500 outline-none text-slate-900 bg-white"
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <select
+                                value={filterStatus}
+                                onChange={e => setFilterStatus(e.target.value)}
+                                className="border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-emerald-500 outline-none w-full md:w-auto text-slate-900 bg-white"
+                            >
+                                <option value="all">Todos os Status</option>
+                                <option value="received">Recebidos</option>
+                                <option value="pending">Pendentes</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Mobile View */}
+                    <div className="block md:hidden">
+                        <MobileDataList
+                            data={filteredIncomes}
+                            title={(item) => item.client?.name || <span className="text-slate-400 italic">Sem cliente</span>}
+                            subtitle={(item) => (
+                                <span className="flex gap-2 text-xs">
+                                    <span>{new Date(item.date).toLocaleDateString('pt-BR')}</span>
+                                    <span>•</span>
+                                    <span>{item.service?.name || 'Serviço Avulso'}</span>
+                                </span>
+                            )}
+                            fields={[
+                                {
+                                    label: 'Valor Líquido',
+                                    value: (item) => <span className="font-bold text-emerald-600">R$ {(item.net_amount || item.amount).toFixed(2)}</span>
+                                },
+                                {
+                                    label: 'Status',
+                                    value: (item) => (
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${item.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                            {item.status === 'received' ? 'Recebido' : 'Pendente'}
+                                        </span>
+                                    )
+                                },
+                                {
+                                    label: 'Método Pagto',
+                                    value: (item) => (
+                                        <span>
+                                            {item.payment_method}
+                                            {item.installment_count && item.installment_count > 1 ? ` (${item.installment_no}/${item.installment_count})` : ''}
+                                        </span>
+                                    )
+                                },
+                                {
+                                    label: 'Observações',
+                                    value: (item) => item.notes || '-'
+                                }
+                            ]}
+                            actions={(item) => isOwner ? (
+                                <>
+                                    {item.status === 'pending' && (
+                                        <button onClick={() => handleMarkReceived(item)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded">
+                                            <ICONS.Check />
+                                        </button>
+                                    )}
+                                    <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:bg-red-50 rounded">
+                                        <ICONS.Trash />
+                                    </button>
+                                </>
+                            ) : null}
                         />
                     </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <select 
-                            value={filterStatus} 
-                            onChange={e => setFilterStatus(e.target.value)}
-                            className="border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-emerald-500 outline-none w-full md:w-auto text-slate-900 bg-white"
-                        >
-                            <option value="all">Todos os Status</option>
-                            <option value="received">Recebidos</option>
-                            <option value="pending">Pendentes</option>
-                        </select>
-                    </div>
-                </div>
 
-                <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-200">
-                                <tr>
-                                    <th className="p-4 font-semibold text-slate-600">Data</th>
-                                    <th className="p-4 font-semibold text-slate-600">Cliente</th>
-                                    <th className="p-4 font-semibold text-slate-600">Detalhes</th>
-                                    <th className="p-4 font-semibold text-slate-600 text-right">Valor Líquido</th>
-                                    <th className="p-4 font-semibold text-slate-600 text-center">Status</th>
-                                    {isOwner && <th className="p-4 font-semibold text-slate-600 text-center">Ações</th>}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {loading ? <tr><td colSpan={6} className="p-6 text-center">Carregando...</td></tr> : 
-                                filteredIncomes.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-slate-400">Nenhuma receita encontrada.</td></tr> :
-                                filteredIncomes.map(inc => (
-                                    <tr key={inc.id} className="hover:bg-slate-50">
-                                        <td className="p-4 text-slate-700 whitespace-nowrap">{new Date(inc.date).toLocaleDateString('pt-BR')}</td>
-                                        <td className="p-4 font-medium text-slate-800">{inc.client?.name || <span className="text-slate-400 italic">Sem cliente</span>}</td>
-                                        <td className="p-4 text-slate-600">
-                                            <div className="flex flex-col">
-                                                <span className="font-medium text-slate-700">{inc.service?.name || 'Serviço Avulso'}</span>
-                                                <span className="text-xs text-slate-400">
-                                                    {inc.payment_method} 
-                                                    {inc.installment_count && inc.installment_count > 1 ? ` (${inc.installment_no}/${inc.installment_count})` : ''}
-                                                </span>
-                                                {inc.fee_amount && inc.fee_amount > 0 ? (
-                                                    <span className="text-xs text-red-400">Taxa: -R$ {inc.fee_amount.toFixed(2)}</span>
-                                                ) : null}
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-right font-bold text-emerald-600">
-                                            R$ {(inc.net_amount || inc.amount).toFixed(2)}
-                                            {inc.gross_amount && inc.gross_amount !== inc.net_amount && (
-                                                <div className="text-xs text-slate-400 line-through">Bruto: {inc.gross_amount.toFixed(2)}</div>
-                                            )}
-                                        </td>
-                                        <td className="p-4 text-center">
-                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${inc.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                {inc.status === 'received' ? 'Recebido' : 'Pendente'}
-                                            </span>
-                                        </td>
-                                        {isOwner && (
-                                            <td className="p-4 text-center flex items-center justify-center gap-2">
-                                                {inc.status === 'pending' && (
-                                                    <button onClick={() => handleMarkReceived(inc)} className="text-emerald-600 hover:text-emerald-800" title="Marcar como Recebido">
-                                                        <ICONS.Check />
-                                                    </button>
-                                                )}
-                                                <button onClick={() => handleDelete(inc.id)} className="text-slate-400 hover:text-red-500 transition-colors"><ICONS.Trash /></button>
-                                            </td>
-                                        )}
+                    {/* Desktop View */}
+                    <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 overflow-x-auto">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-slate-50 border-b border-slate-200">
+                                    <tr>
+                                        <th className="p-4 font-semibold text-slate-600">Data</th>
+                                        <th className="p-4 font-semibold text-slate-600">Cliente</th>
+                                        <th className="p-4 font-semibold text-slate-600">Detalhes</th>
+                                        <th className="p-4 font-semibold text-slate-600 text-right">Valor Líquido</th>
+                                        <th className="p-4 font-semibold text-slate-600 text-center">Status</th>
+                                        {isOwner && <th className="p-4 font-semibold text-slate-600 text-center">Ações</th>}
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {loading ? <tr><td colSpan={6} className="p-6 text-center">Carregando...</td></tr> :
+                                        filteredIncomes.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-slate-400">Nenhuma receita encontrada.</td></tr> :
+                                            filteredIncomes.map(inc => (
+                                                <tr key={inc.id} className="hover:bg-slate-50">
+                                                    <td className="p-4 text-slate-700 whitespace-nowrap">{new Date(inc.date).toLocaleDateString('pt-BR')}</td>
+                                                    <td className="p-4 font-medium text-slate-800">{inc.client?.name || <span className="text-slate-400 italic">Sem cliente</span>}</td>
+                                                    <td className="p-4 text-slate-600">
+                                                        <div className="flex flex-col">
+                                                            <span className="font-medium text-slate-700">{inc.service?.name || 'Serviço Avulso'}</span>
+                                                            <span className="text-xs text-slate-400">
+                                                                {inc.payment_method}
+                                                                {inc.installment_count && inc.installment_count > 1 ? ` (${inc.installment_no}/${inc.installment_count})` : ''}
+                                                            </span>
+                                                            {inc.fee_amount && inc.fee_amount > 0 ? (
+                                                                <span className="text-xs text-red-400">Taxa: -R$ {inc.fee_amount.toFixed(2)}</span>
+                                                            ) : null}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-right font-bold text-emerald-600">
+                                                        R$ {(inc.net_amount || inc.amount).toFixed(2)}
+                                                        {inc.gross_amount && inc.gross_amount !== inc.net_amount && (
+                                                            <div className="text-xs text-slate-400 line-through">Bruto: {inc.gross_amount.toFixed(2)}</div>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${inc.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                            {inc.status === 'received' ? 'Recebido' : 'Pendente'}
+                                                        </span>
+                                                    </td>
+                                                    {isOwner && (
+                                                        <td className="p-4 text-center flex items-center justify-center gap-2">
+                                                            {inc.status === 'pending' && (
+                                                                <button onClick={() => handleMarkReceived(inc)} className="text-emerald-600 hover:text-emerald-800" title="Marcar como Recebido">
+                                                                    <ICONS.Check />
+                                                                </button>
+                                                            )}
+                                                            <button onClick={() => handleDelete(inc.id)} className="text-slate-400 hover:text-red-500 transition-colors"><ICONS.Trash /></button>
+                                                        </td>
+                                                    )}
+                                                </tr>
+                                            ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                </div>
                 </>
             )}
 
@@ -414,19 +492,17 @@ const IncomePage: React.FC = () => {
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
-                            <select 
-                                required
-                                className="w-full border border-slate-200 bg-slate-50 p-3 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
+                            <Combobox
+                                options={clients.map(c => ({ id: c.id, label: c.name }))}
                                 value={clientId}
-                                onChange={e => setClientId(e.target.value)}
-                            >
-                                <option value="">Selecione...</option>
-                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
+                                onChange={setClientId}
+                                onCreate={handleCreateClient}
+                                placeholder="Buscar ou criar cliente..."
+                            />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Serviço (Opcional)</label>
-                            <select 
+                            <select
                                 className="w-full border border-slate-200 bg-slate-50 p-3 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
                                 value={serviceId}
                                 onChange={handleServiceChange}
@@ -437,7 +513,7 @@ const IncomePage: React.FC = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Valor Bruto Total (R$)</label>
-                            <input 
+                            <input
                                 type="number" step="0.01" required
                                 className="w-full border border-slate-200 bg-slate-50 p-3 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 text-lg font-bold"
                                 value={grossTotal}
@@ -446,7 +522,7 @@ const IncomePage: React.FC = () => {
                         </div>
                     </div>
                     {/* ... Rest of form inputs are same ... */}
-                     {/* 2. Payment Method Selector */}
+                    {/* 2. Payment Method Selector */}
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-2">Forma de Pagamento</label>
                         <div className="grid grid-cols-3 gap-2">
@@ -482,8 +558,8 @@ const IncomePage: React.FC = () => {
                             </div>
                         )}
                     </div>
-                     <div className="pt-2">
-                         <div className="flex gap-4 mb-3">
+                    <div className="pt-2">
+                        <div className="flex gap-4 mb-3">
                             <div className="flex-1">
                                 <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Origem / Campanha</label>
                                 <select className="w-full border border-slate-200 rounded p-2 text-sm text-slate-900 bg-white" value={campaignId} onChange={e => setCampaignId(e.target.value)}>
@@ -492,7 +568,7 @@ const IncomePage: React.FC = () => {
                             </div>
                         </div>
                         <label className="flex items-center gap-2 cursor-pointer mb-3 select-none"><input type="checkbox" className="rounded text-emerald-600" checked={newCustomer} onChange={e => setNewCustomer(e.target.checked)} /><span className="text-sm text-slate-700">Este é um novo cliente?</span></label>
-                        <textarea className="w-full border border-slate-200 bg-slate-50 p-3 rounded-lg text-slate-900 outline-none text-sm placeholder-slate-400" rows={2} placeholder="Observações..." value={notes} onChange={e => setNotes(e.target.value)}/>
+                        <textarea className="w-full border border-slate-200 bg-slate-50 p-3 rounded-lg text-slate-900 outline-none text-sm placeholder-slate-400" rows={2} placeholder="Observações..." value={notes} onChange={e => setNotes(e.target.value)} />
                     </div>
 
                     <button className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 shadow-md mt-4">

@@ -15,6 +15,15 @@ body {
   overflow-x: hidden;
 }
 
+
+/* slate-50 */
+@media screen {
+  body {
+    overflow-x: hidden;
+  }
+}
+
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

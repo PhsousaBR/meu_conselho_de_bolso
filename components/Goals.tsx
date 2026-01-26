@@ -10,11 +10,11 @@ import { useWorkspace } from '../contexts/WorkspaceContext';
 type PeriodType = 'year' | 'half' | 'quarter' | 'month';
 
 const Goals: React.FC = () => {
-    const { isOwner } = useWorkspace();
+    const { isOwner, workspace } = useWorkspace(); // Get workspace
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [periodType, setPeriodType] = useState<PeriodType>('year');
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
-    
+
     const [goals, setGoals] = useState<any[]>([]);
     const [incomes, setIncomes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -32,11 +32,13 @@ const Goals: React.FC = () => {
         setLoading(false);
     };
 
-    useEffect(() => { loadData(); }, [selectedYear]);
+    useEffect(() => {
+        if (workspace?.id) loadData();
+    }, [selectedYear, workspace?.id]);
 
     const handleDistribute = async (e: React.FormEvent) => {
         e.preventDefault();
-        if(!isOwner) return;
+        if (!isOwner) return;
         await distributeAnnualGoal(selectedYear, parseFloat(annualTarget), GoalType.REALISTIC, distMode);
         setIsDrawerOpen(false);
         loadData();
@@ -60,7 +62,7 @@ const Goals: React.FC = () => {
             const actual = incomes
                 .filter(inc => new Date(inc.date).getMonth() === i)
                 .reduce((acc, curr) => acc + Number(curr.amount), 0);
-            
+
             const st = getStatusLabel(actual, goal?.target_amount || 0);
 
             return {
@@ -80,24 +82,24 @@ const Goals: React.FC = () => {
     const calculatePeriodMetrics = () => {
         let startM = 0, endM = 11;
         if (periodType === 'month') { startM = selectedMonth - 1; endM = selectedMonth - 1; }
-        if (periodType === 'quarter') { 
+        if (periodType === 'quarter') {
             // Simplified: Q1 (0-2) based on selectedMonth being in that quarter or just defaulting
-            const q = Math.ceil(selectedMonth / 3); 
-            startM = (q - 1) * 3; endM = startM + 2; 
+            const q = Math.ceil(selectedMonth / 3);
+            startM = (q - 1) * 3; endM = startM + 2;
         }
-        if (periodType === 'half') { 
-            const h = selectedMonth <= 6 ? 1 : 2; 
-            startM = (h - 1) * 6; endM = startM + 5; 
+        if (periodType === 'half') {
+            const h = selectedMonth <= 6 ? 1 : 2;
+            startM = (h - 1) * 6; endM = startM + 5;
         }
 
         const subset = monthlyData.slice(startM, endM + 1);
         const totalGoal = subset.reduce((acc, c) => acc + c.goal, 0);
         const totalActual = subset.reduce((acc, c) => acc + c.actual, 0);
-        
+
         // Pace Projection
         const now = new Date();
         const isCurrentPeriod = selectedYear === now.getFullYear() && now.getMonth() >= startM && now.getMonth() <= endM;
-        
+
         let projection = totalActual;
         if (isCurrentPeriod && totalGoal > 0) {
             // Very rough day-based projection for current active period
@@ -105,7 +107,7 @@ const Goals: React.FC = () => {
             const endOfPeriod = new Date(selectedYear, endM + 1, 0);
             const totalDays = (endOfPeriod.getTime() - startOfPeriod.getTime()) / (1000 * 3600 * 24);
             const daysPassed = Math.max(1, (now.getTime() - startOfPeriod.getTime()) / (1000 * 3600 * 24));
-            
+
             if (daysPassed < totalDays) {
                 projection = (totalActual / daysPassed) * totalDays;
             }
@@ -120,13 +122,13 @@ const Goals: React.FC = () => {
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
-            <PageHeader 
-                title="Metas 2.0" 
+            <PageHeader
+                title="Metas 2.0"
                 description="Planejamento estratégico e acompanhamento de ritmo."
                 actions={
                     <div className="flex gap-2">
-                        <select 
-                            value={selectedYear} 
+                        <select
+                            value={selectedYear}
                             onChange={e => setSelectedYear(Number(e.target.value))}
                             className="bg-white border border-slate-300 text-slate-900 rounded-lg px-3 py-2 text-sm outline-none"
                         >
@@ -144,8 +146,8 @@ const Goals: React.FC = () => {
             {/* Period Selector */}
             <div className="flex gap-2 bg-white p-2 rounded-xl border border-slate-200 w-fit shadow-sm">
                 {(['year', 'half', 'quarter', 'month'] as PeriodType[]).map(t => (
-                    <button 
-                        key={t} 
+                    <button
+                        key={t}
                         onClick={() => setPeriodType(t)}
                         className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${periodType === t ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
@@ -162,7 +164,7 @@ const Goals: React.FC = () => {
                             {paceStatus} — {selectedYear}
                         </h2>
                         <p className="text-slate-600 mt-1">
-                            {paceStatus === 'No Ritmo' 
+                            {paceStatus === 'No Ritmo'
                                 ? `Nesse ritmo, você supera a meta em R$ ${Math.abs(diff).toLocaleString('pt-BR')}.`
                                 : `Para bater a meta do período, faltam R$ ${Math.abs(totalGoal - totalActual).toLocaleString('pt-BR')}.`
                             }
@@ -179,7 +181,7 @@ const Goals: React.FC = () => {
                 </div>
                 {/* Progress Bar */}
                 <div className="mt-4 w-full bg-slate-200 rounded-full h-2.5">
-                    <div className={`h-2.5 rounded-full ${paceStatus === 'No Ritmo' ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((totalActual/totalGoal)*100, 100)}%` }}></div>
+                    <div className={`h-2.5 rounded-full ${paceStatus === 'No Ritmo' ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.min((totalActual / totalGoal) * 100, 100)}%` }}></div>
                 </div>
             </div>
 
@@ -191,8 +193,8 @@ const Goals: React.FC = () => {
                     <ResponsiveContainer>
                         <AreaChart data={monthlyData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis dataKey="month" tick={{fontSize: 12}} />
-                            <YAxis tickFormatter={v => `${v/1000}k`} tick={{fontSize: 12}} />
+                            <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                            <YAxis tickFormatter={v => `${v / 1000}k`} tick={{ fontSize: 12 }} />
                             <Tooltip formatter={(value: any) => `R$ ${Number(value).toLocaleString('pt-BR')}`} />
                             <Area type="monotone" dataKey="actual" name="Realizado" stroke="#4f46e5" fill="#e0e7ff" strokeWidth={2} />
                             <Area type="monotone" dataKey="goal" name="Meta" stroke="#10b981" fill="none" strokeDasharray="5 5" strokeWidth={2} />

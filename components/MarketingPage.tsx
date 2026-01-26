@@ -5,6 +5,7 @@ import { Campaign, MarketingChannel, IncomeStatus, Income } from '../types';
 import { PageHeader, Drawer } from './Shared';
 import { ICONS } from '../constants';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { MobileDataList } from './MobileDataList';
 
 const MarketingPage: React.FC = () => {
     const { isOwner } = useWorkspace();
@@ -25,13 +26,13 @@ const MarketingPage: React.FC = () => {
     const fetchData = async () => {
         setLoading(true);
         const [cmp, inc] = await Promise.all([getCampaigns(), getIncomes()]);
-        
+
         // Compute metrics
         const processedCampaigns = cmp.map(c => {
             const attributedIncomes = inc.filter(i => i.campaign_id === c.id && i.status === IncomeStatus.RECEIVED);
             const revenue = attributedIncomes.reduce((acc, curr) => acc + Number(curr.amount), 0);
             const customers = attributedIncomes.filter(i => i.customer_acquired).length;
-            
+
             return {
                 ...c,
                 attributed_revenue: revenue,
@@ -61,7 +62,7 @@ const MarketingPage: React.FC = () => {
     };
 
     const handleEdit = (c: Campaign) => {
-        if(!isOwner) return;
+        if (!isOwner) return;
         setEditingId(c.id);
         setFormData({
             name: c.name,
@@ -75,15 +76,15 @@ const MarketingPage: React.FC = () => {
     }
 
     const handleDelete = async (id: string) => {
-        if(!isOwner) return;
-        if(confirm('Tem certeza? Receitas vinculadas perderão a atribuição.')) {
+        if (!isOwner) return;
+        if (confirm('Tem certeza? Receitas vinculadas perderão a atribuição.')) {
             await deleteCampaign(id);
             fetchData();
         }
     }
 
     const openNewDrawer = () => {
-        if(!isOwner) return;
+        if (!isOwner) return;
         setEditingId(null);
         setFormData({ name: '', channel: MarketingChannel.META_ADS, spend: 0, start_date: new Date().toISOString().split('T')[0] });
         setIsDrawerOpen(true);
@@ -102,8 +103,8 @@ const MarketingPage: React.FC = () => {
 
     return (
         <div className="max-w-7xl mx-auto space-y-8">
-            <PageHeader 
-                title="Marketing & Performance" 
+            <PageHeader
+                title="Marketing & Performance"
                 description="Acompanhe ROI, ROAS e Custo por Aquisição (CAC)."
                 actions={
                     isOwner && (
@@ -137,7 +138,51 @@ const MarketingPage: React.FC = () => {
             </div>
 
             {/* Campaign Table */}
-            <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
+            <div className="block md:hidden">
+                <MobileDataList
+                    data={campaigns}
+                    title={(item) => item.name}
+                    subtitle={(item) => (
+                        <span className="bg-slate-100 px-2 py-1 rounded text-xs text-slate-600 uppercase font-bold">
+                            {item.channel.replace('_', ' ')}
+                        </span>
+                    )}
+                    fields={[
+                        {
+                            label: 'Investimento',
+                            value: (item) => <span className="text-slate-600">R$ {Number(item.spend).toLocaleString('pt-BR')}</span>
+                        },
+                        {
+                            label: 'Retorno',
+                            value: (item) => <span className="font-bold text-emerald-600">R$ {(item.attributed_revenue || 0).toLocaleString('pt-BR')}</span>
+                        },
+                        {
+                            label: 'ROAS',
+                            value: (item) => <span className="font-bold text-slate-800">{(item.roas || 0).toFixed(1)}x</span>
+                        },
+                        {
+                            label: 'Novos Clientes',
+                            value: (item) => (item.acquired_customers || 0)
+                        },
+                        {
+                            label: 'CAC',
+                            value: (item) => `R$ ${(item.cac || 0).toFixed(0)}`
+                        }
+                    ]}
+                    actions={(item) => isOwner ? (
+                        <>
+                            <button onClick={() => handleEdit(item)} className="p-2 text-indigo-400 hover:bg-indigo-50 rounded">
+                                <ICONS.Edit />
+                            </button>
+                            <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:bg-red-50 rounded">
+                                <ICONS.Trash />
+                            </button>
+                        </>
+                    ) : null}
+                />
+            </div>
+
+            <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                     <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
                         <tr>
@@ -152,33 +197,33 @@ const MarketingPage: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {loading ? <tr><td colSpan={8} className="p-6 text-center">Carregando...</td></tr> : 
-                         campaigns.length === 0 ? <tr><td colSpan={8} className="p-6 text-center text-slate-400">Nenhuma campanha registrada.</td></tr> :
-                         campaigns.map(c => (
-                            <tr key={c.id} className="hover:bg-slate-50">
-                                <td className="p-4 font-medium text-slate-900">{c.name}</td>
-                                <td className="p-4">
-                                    <span className="bg-slate-100 px-2 py-1 rounded text-xs text-slate-600 uppercase font-bold">{c.channel.replace('_', ' ')}</span>
-                                </td>
-                                <td className="p-4 text-right text-slate-600">R$ {Number(c.spend).toLocaleString('pt-BR')}</td>
-                                <td className="p-4 text-right text-emerald-600 font-bold">R$ {(c.attributed_revenue || 0).toLocaleString('pt-BR')}</td>
-                                <td className="p-4 text-center font-bold text-slate-800">
-                                    {(c.roas || 0).toFixed(1)}x
-                                </td>
-                                <td className="p-4 text-center text-slate-800">
-                                    {(c.acquired_customers || 0)}
-                                </td>
-                                <td className="p-4 text-center text-slate-800">
-                                    R$ {(c.cac || 0).toFixed(0)}
-                                </td>
-                                {isOwner && (
-                                    <td className="p-4 text-center">
-                                        <button onClick={() => handleEdit(c)} className="text-slate-400 hover:text-indigo-600 mr-2"><ICONS.Edit /></button>
-                                        <button onClick={() => handleDelete(c.id)} className="text-slate-400 hover:text-red-500"><ICONS.Trash /></button>
-                                    </td>
-                                )}
-                            </tr>
-                        ))}
+                        {loading ? <tr><td colSpan={8} className="p-6 text-center">Carregando...</td></tr> :
+                            campaigns.length === 0 ? <tr><td colSpan={8} className="p-6 text-center text-slate-400">Nenhuma campanha registrada.</td></tr> :
+                                campaigns.map(c => (
+                                    <tr key={c.id} className="hover:bg-slate-50">
+                                        <td className="p-4 font-medium text-slate-900">{c.name}</td>
+                                        <td className="p-4">
+                                            <span className="bg-slate-100 px-2 py-1 rounded text-xs text-slate-600 uppercase font-bold">{c.channel.replace('_', ' ')}</span>
+                                        </td>
+                                        <td className="p-4 text-right text-slate-600">R$ {Number(c.spend).toLocaleString('pt-BR')}</td>
+                                        <td className="p-4 text-right text-emerald-600 font-bold">R$ {(c.attributed_revenue || 0).toLocaleString('pt-BR')}</td>
+                                        <td className="p-4 text-center font-bold text-slate-800">
+                                            {(c.roas || 0).toFixed(1)}x
+                                        </td>
+                                        <td className="p-4 text-center text-slate-800">
+                                            {(c.acquired_customers || 0)}
+                                        </td>
+                                        <td className="p-4 text-center text-slate-800">
+                                            R$ {(c.cac || 0).toFixed(0)}
+                                        </td>
+                                        {isOwner && (
+                                            <td className="p-4 text-center">
+                                                <button onClick={() => handleEdit(c)} className="text-slate-400 hover:text-indigo-600 mr-2"><ICONS.Edit /></button>
+                                                <button onClick={() => handleDelete(c.id)} className="text-slate-400 hover:text-red-500"><ICONS.Trash /></button>
+                                            </td>
+                                        )}
+                                    </tr>
+                                ))}
                     </tbody>
                 </table>
             </div>
@@ -186,11 +231,11 @@ const MarketingPage: React.FC = () => {
             <Drawer title={editingId ? "Editar Campanha" : "Nova Campanha"} isOpen={isDrawerOpen} onClose={closeDrawer}>
                 {/* Form same as before */}
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Nome da Campanha</label><input required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} placeholder="Ex: Google Ads - Verão" /></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Canal</label><select className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.channel} onChange={e => setFormData({...formData, channel: e.target.value as MarketingChannel})}><option value={MarketingChannel.META_ADS}>Meta Ads (FB/IG)</option><option value={MarketingChannel.GOOGLE_ADS}>Google Ads</option><option value={MarketingChannel.INDICACAO}>Indicação</option><option value={MarketingChannel.THREADS}>Threads</option><option value={MarketingChannel.INSTAGRAM}>Instagram Orgânico</option><option value={MarketingChannel.OUTROS}>Outros</option></select></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Investimento Total (R$)</label><input type="number" step="0.01" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.spend} onChange={e => setFormData({...formData, spend: parseFloat(e.target.value)})} /></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Data Início</label><input type="date" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})} /></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Observações</label><textarea className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" rows={2} value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Nome da Campanha</label><input required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} placeholder="Ex: Google Ads - Verão" /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Canal</label><select className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.channel} onChange={e => setFormData({ ...formData, channel: e.target.value as MarketingChannel })}><option value={MarketingChannel.META_ADS}>Meta Ads (FB/IG)</option><option value={MarketingChannel.GOOGLE_ADS}>Google Ads</option><option value={MarketingChannel.INDICACAO}>Indicação</option><option value={MarketingChannel.THREADS}>Threads</option><option value={MarketingChannel.INSTAGRAM}>Instagram Orgânico</option><option value={MarketingChannel.OUTROS}>Outros</option></select></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Investimento Total (R$)</label><input type="number" step="0.01" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.spend} onChange={e => setFormData({ ...formData, spend: parseFloat(e.target.value) })} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Data Início</label><input type="date" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.start_date} onChange={e => setFormData({ ...formData, start_date: e.target.value })} /></div>
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Observações</label><textarea className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" rows={2} value={formData.notes || ''} onChange={e => setFormData({ ...formData, notes: e.target.value })} /></div>
                     <button className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 shadow-md mt-4">{editingId ? "Salvar Alterações" : "Criar Campanha"}</button>
                 </form>
             </Drawer>
