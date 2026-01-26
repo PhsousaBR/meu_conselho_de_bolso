@@ -55,33 +55,65 @@ const ImportData: React.FC = () => {
     };
 
     const parseCSVContent = (text: string) => {
+        // Auto-detect delimiter
+        const firstLine = text.split('\n')[0];
+        const delimiter = firstLine.includes(';') ? ';' : ',';
+
         const lines = text.split('\n');
-        const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+        // Normalize headers: remove BOM, trim, lowercase
+        const headers = lines[0].replace(/^\uFEFF/, '').toLowerCase().split(delimiter).map(h => h.trim());
+
         const getIndex = (keys: string[]) => headers.findIndex(h => keys.some(k => h.includes(k)));
 
-        const dateIdx = getIndex(['date', 'data']);
-        const amountIdx = getIndex(['amount', 'valor']);
-        const payerIdx = getIndex(['counterparty', 'pagador', 'cliente']);
-        const descIdx = getIndex(['description', 'descricao']);
-        const classIdx = getIndex(['class', 'classe']);
+        const dateIdx = getIndex(['data_lancamento', 'data', 'date']);
+        const amountIdx = getIndex(['valor', 'amount']);
+        const typeIdx = getIndex(['tipo_linha', 'type']);
+        const descIdx = getIndex(['descricao', 'description', 'obs']);
+        // const payerIdx = getIndex(['cliente', 'payer']); // Not present in this CSV format
 
         if (dateIdx === -1 || amountIdx === -1) return [];
 
-        const validRows = [];
-        for (let i = 1; i < lines.length; i++) {
-            const row = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-            if (row.length < 2) continue;
-            // Filter
-            if (classIdx !== -1 && row[classIdx] !== 'receita_cliente_provavel') continue;
+        const validRows: any[] = [];
 
-            const amount = parseFloat(row[amountIdx]);
+        for (let i = 1; i < lines.length; i++) {
+            const row = lines[i].split(delimiter).map(c => c.trim().replace(/^"|"$/g, ''));
+            if (row.length < 2) continue;
+
+            // Filter: Only "ENTRADA"
+            if (typeIdx !== -1) {
+                const typeVal = row[typeIdx].toUpperCase();
+                if (typeVal !== 'ENTRADA') continue;
+            }
+
+            // Parse Amount (handle 1.200,50 -> 1200.50)
+            let amountStr = row[amountIdx];
+            if (!amountStr) continue;
+
+            // Remove dots (thousand separators) and replace comma with dot
+            amountStr = amountStr.replace(/\./g, '').replace(',', '.');
+            const amount = parseFloat(amountStr);
+
             if (isNaN(amount) || amount <= 0) continue;
 
+            // Parse Date (DD/MM/YYYY -> YYYY-MM-DD or ISO)
+            const dateStr = row[dateIdx];
+            if (!dateStr) continue;
+
+            let isoDate = dateStr;
+            // Basic check for DD/MM/YYYY
+            if (dateStr.includes('/')) {
+                const parts = dateStr.split('/');
+                if (parts.length === 3) {
+                    // YYYY-MM-DD
+                    isoDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+            }
+
             validRows.push({
-                date: row[dateIdx],
+                date: isoDate,
                 amount,
-                payer: payerIdx !== -1 ? row[payerIdx] : 'Desconhecido',
-                desc: descIdx !== -1 ? row[descIdx] : ''
+                payer: null, // No client in CSV
+                desc: descIdx !== -1 ? row[descIdx] : 'Receita Importada (CSV)'
             });
         }
         return validRows;
@@ -94,75 +126,60 @@ const ImportData: React.FC = () => {
         setUploading(true);
 
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+            setLog(prev => [...prev, 'Erro: Usuário não autenticado.']);
+            setUploading(false);
+            return;
+        }
 
         let success = 0;
         let skipped = 0;
         let errors = 0;
 
-        // Memory cache for clients to avoid N+1 selects
-        const clientCache: Record<string, string> = {};
+        try {
+            for (const item of parsedData) {
+                try {
+                    // Check dup (Simple check by date + amount + workspace)
+                    const { data: dup } = await supabase.from('income')
+                        .select('id')
+                        .eq('date', item.date)
+                        .eq('amount', item.amount)
+                        .eq('workspace_id', workspace?.id)
+                        .maybeSingle();
 
-        for (const item of parsedData) {
-            try {
-                // Check dup
-                const { data: dup } = await supabase.from('income')
-                    .select('id')
-                    .eq('date', item.date)
-                    .eq('amount', item.amount)
-                    .eq('workspace_id', workspace?.id)
-                    .eq('notes', item.desc)
-                    .maybeSingle();
-
-                if (dup) {
-                    skipped++;
-                    continue;
-                }
-
-                // Resolve Client
-                let clientId = null;
-                if (item.payer) {
-                    if (clientCache[item.payer]) {
-                        clientId = clientCache[item.payer];
-                    } else {
-                        const { data: existing } = await supabase.from('clients')
-                            .select('id').eq('workspace_id', workspace?.id).ilike('name', item.payer).maybeSingle();
-
-                        if (existing) {
-                            clientId = existing.id;
-                            clientCache[item.payer] = clientId;
-                        } else {
-                            const newC = await createClient({ name: item.payer });
-                            if (newC) {
-                                clientId = newC.id;
-                                clientCache[item.payer] = clientId;
-                            }
-                        }
+                    if (dup) {
+                        skipped++;
+                        continue;
                     }
+
+                    // Insert
+                    const { error } = await supabase.from('income').insert({
+                        user_id: user.id,
+                        workspace_id: workspace?.id,
+                        date: item.date,
+                        amount: item.amount,
+                        client_id: null, // Optional
+                        notes: item.desc,
+                        status: IncomeStatus.RECEIVED,
+                        source: 'csv_import'
+                    });
+
+                    if (error) throw error;
+                    success++;
+
+                } catch (e: any) {
+                    console.error("Row Error:", e);
+                    errors++;
                 }
-
-                // Insert
-                await supabase.from('income').insert({
-                    user_id: user.id,
-                    workspace_id: workspace?.id,
-                    date: item.date,
-                    amount: item.amount,
-                    client_id: clientId,
-                    notes: item.desc,
-                    status: IncomeStatus.RECEIVED,
-                    source: 'csv_import'
-                });
-                success++;
-
-            } catch (e: any) {
-                console.error(e);
-                errors++;
             }
-        }
+            setLog([`Importação Finalizada!`, `Sucesso: ${success}`, `Duplicados/Ignorados: ${skipped}`, `Erros: ${errors}`]);
+            setStep('done');
 
-        setLog([`Importação Finalizada!`, `Sucesso: ${success}`, `Duplicados/Ignorados: ${skipped}`, `Erros: ${errors}`]);
-        setUploading(false);
-        setStep('done');
+        } catch (err: any) {
+            setLog(prev => [...prev, `Erro Geral: ${err.message}`]);
+        } finally {
+            setUploading(false);
+        }
     };
 
     const handleSeed = async () => {
@@ -217,7 +234,7 @@ const ImportData: React.FC = () => {
                             <div className="grid grid-cols-3 gap-4 text-center">
                                 <div><p className="text-2xl font-bold text-indigo-700">{previewStats.total}</p><p className="text-xs text-indigo-600 uppercase font-bold">Linhas Encontradas</p></div>
                                 <div><p className="text-2xl font-bold text-slate-700">?</p><p className="text-xs text-slate-500 uppercase font-bold">Duplicados (Check ao Importar)</p></div>
-                                <div><p className="text-2xl font-bold text-emerald-600">Many</p><p className="text-xs text-emerald-600 uppercase font-bold">Novos Clientes</p></div>
+                                <div><p className="text-2xl font-bold text-slate-400">N/A</p><p className="text-xs text-slate-400 uppercase font-bold">Novos Clientes</p></div>
                             </div>
                         </div>
                         <div className="flex gap-4 justify-center">
