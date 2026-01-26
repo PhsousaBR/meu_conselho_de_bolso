@@ -13,7 +13,7 @@ const iconBaseProps = {
   strokeLinejoin: "round"
 };
 
-const createSvg = (...children: React.ReactNode[]) => 
+const createSvg = (...children: React.ReactNode[]) =>
   React.createElement('svg', iconBaseProps, ...children);
 
 export const ICONS = {
@@ -58,7 +58,7 @@ export const ICONS = {
     React.createElement('line', { x1: 5, y1: 12, x2: 19, y2: 12, key: 'l2' })
   ),
   Check: () => createSvg(
-     React.createElement('polyline', { points: "20 6 9 17 4 12", key: 'pl1' })
+    React.createElement('polyline', { points: "20 6 9 17 4 12", key: 'pl1' })
   ),
   Search: () => createSvg(
     React.createElement('circle', { cx: 11, cy: 11, r: 8, key: 'c1' }),
@@ -86,11 +86,11 @@ export const ICONS = {
     React.createElement('polyline', { points: "10 9 9 9 8 9", key: 'l3' })
   ),
   Close: () => createSvg(
-      React.createElement('line', { x1: 18, y1: 6, x2: 6, y2: 18, key: 'l1' }),
-      React.createElement('line', { x1: 6, y1: 6, x2: 18, y2: 18, key: 'l2' })
+    React.createElement('line', { x1: 18, y1: 6, x2: 6, y2: 18, key: 'l1' }),
+    React.createElement('line', { x1: 6, y1: 6, x2: 18, y2: 18, key: 'l2' })
   ),
   Bolt: () => createSvg(
-      React.createElement('polygon', { points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2", key: 'p1' })
+    React.createElement('polygon', { points: "13 2 3 14 12 14 11 22 21 10 12 10 13 2", key: 'p1' })
   ),
   Calculator: () => createSvg(
     React.createElement('rect', { x: 4, y: 2, width: 16, height: 20, rx: 2, key: 'r1' }),
@@ -102,7 +102,11 @@ export const ICONS = {
     React.createElement('path', { d: "M12 14h.01", key: 'p4' }),
     React.createElement('path', { d: "M8 14h.01", key: 'p5' }),
     React.createElement('path', { d: "M12 18h.01", key: 'p6' }),
+    React.createElement('path', { d: "M12 18h.01", key: 'p6' }),
     React.createElement('path', { d: "M8 18h.01", key: 'p7' })
+  ),
+  ChevronRight: () => createSvg(
+    React.createElement('polyline', { points: "9 18 15 12 9 6", key: 'p1' })
   )
 };
 

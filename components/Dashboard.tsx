@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { getIncomes, getExpenses, getGoals, getCampaigns } from '../services/dataService';
 import { Income, Expense, Goal, IncomeStatus, Campaign } from '../types';
 import { MONTH_NAMES, ICONS } from '../constants';
+import { formatAxisCompact, formatBRL2 } from '../utils/formatters';
 import Link from 'next/link';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 
@@ -152,7 +153,7 @@ const Dashboard: React.FC = () => {
       type: 'warning',
       text: `Você tem valores pendentes para receber este mês.`,
       link: '/receitas',
-      value: `R$ ${pendingIncome.toLocaleString('pt-BR')}`
+      value: formatBRL2(pendingIncome)
     });
   }
 
@@ -162,7 +163,7 @@ const Dashboard: React.FC = () => {
     if (totalIncome < goalTarget && goalProgressPct < idealPacePct - 15) {
       actions.push({
         type: 'alert',
-        text: `Ritmo de vendas lento. Faltam R$ ${goalRemaining.toLocaleString('pt-BR')} para a meta.`,
+        text: `Ritmo de vendas lento. Faltam ${formatBRL2(goalRemaining)} para a meta.`,
         link: '/metas'
       });
     } else if (totalIncome >= goalTarget) {
@@ -210,7 +211,7 @@ const Dashboard: React.FC = () => {
               <ICONS.Check /> Bússola Financeira &bull; {monthName}/{currentYear}
             </div>
             <h2 className="text-4xl font-bold mb-1">
-              R$ {totalIncome.toLocaleString('pt-BR')}
+              {formatBRL2(totalIncome)}
             </h2>
             <p className="text-slate-400 text-sm">Realizado até agora (Líquido)</p>
 
@@ -219,7 +220,7 @@ const Dashboard: React.FC = () => {
                 <span className={goalProgressPct >= 100 ? "text-emerald-400" : "text-white"}>
                   {goalProgressPct.toFixed(0)}% da Meta
                 </span>
-                <span className="text-slate-400">Objetivo: R$ {goalTarget.toLocaleString('pt-BR')}</span>
+                <span className="text-slate-400">Objetivo: {formatBRL2(goalTarget)}</span>
               </div>
               <div className="w-full bg-slate-700 rounded-full h-3 overflow-hidden">
                 <div
@@ -243,7 +244,7 @@ const Dashboard: React.FC = () => {
               ) : (
                 <div>
                   <p className="text-xs text-slate-300 uppercase font-bold mb-1">Para atingir o objetivo:</p>
-                  <p className="text-2xl font-bold text-white mb-1">R$ {goalRemaining.toLocaleString('pt-BR')}</p>
+                  <p className="text-2xl font-bold text-white mb-1">{formatBRL2(goalRemaining)}</p>
                   <p className="text-xs text-slate-400">
                     Falta vender aprox. <strong>R$ {dailyPaceNeeded > 0 ? dailyPaceNeeded.toFixed(0) : 0}/dia</strong>
                   </p>
@@ -265,7 +266,7 @@ const Dashboard: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm text-slate-500 mb-1">A Receber (Pendente)</p>
-              <p className="text-2xl font-bold text-amber-500">R$ {pendingIncome.toLocaleString('pt-BR')}</p>
+              <p className="text-2xl font-bold text-amber-500">{formatBRL2(pendingIncome)}</p>
             </div>
             <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><ICONS.Income /></div>
           </div>
@@ -274,7 +275,7 @@ const Dashboard: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm text-slate-500 mb-1">Despesas do Mês</p>
-              <p className="text-2xl font-bold text-red-500">R$ {totalExpenses.toLocaleString('pt-BR')}</p>
+              <p className="text-2xl font-bold text-red-500">{formatBRL2(totalExpenses)}</p>
             </div>
             <div className="p-2 bg-red-50 text-red-600 rounded-lg"><ICONS.Expenses /></div>
           </div>
@@ -284,7 +285,7 @@ const Dashboard: React.FC = () => {
             <div>
               <p className="text-sm text-slate-500 mb-1">Saldo Líquido</p>
               <p className={`text-2xl font-bold ${balance >= 0 ? 'text-slate-800' : 'text-red-600'}`}>
-                R$ {balance.toLocaleString('pt-BR')}
+                {formatBRL2(balance)}
               </p>
             </div>
             <div className={`p-2 rounded-lg ${balance >= 0 ? 'bg-slate-100 text-slate-600' : 'bg-red-50 text-red-600'}`}>
@@ -297,7 +298,7 @@ const Dashboard: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-sm text-emerald-700 mb-1">A Receber (90 dias)</p>
-              <p className="text-2xl font-bold text-emerald-800">R$ {pendingNext90.toLocaleString('pt-BR')}</p>
+              <p className="text-2xl font-bold text-emerald-800">{formatBRL2(pendingNext90)}</p>
               <Link href="/receitas" className="text-xs text-emerald-600 hover:underline mt-1 block">{pendingNext90Count} lançamentos &rarr;</Link>
             </div>
             <div className="p-2 bg-white text-emerald-600 rounded-lg shadow-sm"><ICONS.Calculator /></div>
@@ -313,10 +314,11 @@ const Dashboard: React.FC = () => {
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(value) => `R$${value / 1000}k`} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={formatAxisCompact} />
               <Tooltip
                 cursor={{ fill: '#f1f5f9' }}
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                formatter={(value: number) => [formatBRL2(value), 'Receita']}
               />
               <ReferenceLine y={currentGoal?.target_amount || 0} stroke="#10b981" strokeDasharray="3 3" label="Meta" />
               <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />

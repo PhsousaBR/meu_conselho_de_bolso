@@ -424,7 +424,42 @@ export const getIncomes = async (): Promise<Income[]> => {
     }
 };
 
+
+export const deleteImportedIncomesByYears = async (years: number[], workspaceId: string) => {
+    if (!years || years.length === 0) return { count: 0 };
+
+    // Construct range filters or multiple queries. 
+    // Supabase JS doesn't have "year(date) IN (...)" easily without RPC.
+    // Easier to iterate or use 'or'.
+
+    let totalDeleted = 0;
+
+    // For safety, iterate years (usually few selected)
+    for (const year of years) {
+        const start = `${year}-01-01`;
+        const end = `${year}-12-31`;
+
+        const { error, count } = await supabase
+            .from('income')
+            .delete({ count: 'exact' })
+            .eq('workspace_id', workspaceId)
+            .eq('is_imported', true) // Safety flag
+            .gte('date', start)
+            .lte('date', end);
+
+        if (error) {
+            console.error(`Error deleting ${year}:`, error);
+            throw error;
+        }
+        totalDeleted += (count || 0);
+    }
+
+    return { count: totalDeleted };
+};
+
 export const updateIncome = async (id: string, updates: Partial<Income>) => {
+    // ... existing updateIncome
+
     const { workspace, role } = await getActiveWorkspace();
     if (workspace) {
         if (role !== Role.OWNER) throw new Error('Apenas leitura.');

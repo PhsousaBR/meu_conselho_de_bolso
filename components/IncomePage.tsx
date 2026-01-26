@@ -6,10 +6,144 @@ import { PageHeader, Drawer, Tabs } from './Shared';
 import { Combobox } from './Combobox';
 import { ICONS, MONTH_NAMES } from '../constants';
 import { useWorkspace } from '../contexts/WorkspaceContext';
-import { MobileDataList } from './MobileDataList';
 
 const IncomePage: React.FC = () => {
-    const { isOwner, workspace } = useWorkspace(); // Get workspace from context
+    return <IncomePageContent />;
+};
+
+// Sub-components
+const YearAccordion = ({ year, monthsData, isOwner, onDelete, onMarkReceived }: any) => {
+    const [isOpen, setIsOpen] = useState(year === new Date().getFullYear());
+
+    // Explicitly cast curr.total to number if needed
+    const yearlyTotal = Object.values(monthsData).reduce((acc: number, curr: any) => acc + (curr.total || 0), 0) as number;
+
+    return (
+        <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+            >
+                <div className="flex items-center gap-3">
+                    <div className={`transition-transform duration-200 ${isOpen ? 'rotate-90' : ''} text-slate-400`}>
+                        <ICONS.ChevronRight />
+                    </div>
+                    <span className="text-lg font-bold text-slate-800">{year}</span>
+                    <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-bold">
+                        {Object.keys(monthsData).length} meses
+                    </span>
+                </div>
+                <div className="font-bold text-emerald-700 text-lg">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(yearlyTotal)}
+                </div>
+            </button>
+
+            {isOpen && (
+                <div className="divide-y divide-slate-100 border-t border-slate-200">
+                    {Object.keys(monthsData).map(Number).sort((a, b) => b - a).map(month => (
+                        <MonthAccordion
+                            key={month}
+                            year={year}
+                            month={month}
+                            data={monthsData[month]}
+                            isOwner={isOwner}
+                            onDelete={onDelete}
+                            onMarkReceived={onMarkReceived}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+const MonthAccordion = ({ year, month, data, isOwner, onDelete, onMarkReceived }: any) => {
+    // Default open if current month and current year
+    const isCurrentMonth = month === new Date().getMonth() && year === new Date().getFullYear();
+    const [isOpen, setIsOpen] = useState(isCurrentMonth);
+
+    return (
+        <div className="bg-white">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex items-center justify-between p-3 pl-8 hover:bg-slate-50 transition-colors text-left border-l-4 border-transparent hover:border-emerald-400"
+            >
+                <div className="flex items-center gap-3">
+                    <div className={`transition-transform duration-200 ${isOpen ? 'rotate-90' : ''} text-slate-300`}>
+                        <ICONS.ChevronRight />
+                    </div>
+                    <span className="font-bold text-slate-700 uppercase tracking-wide text-sm">
+                        {MONTH_NAMES[month]}
+                    </span>
+                    <span className="text-xs text-slate-400 font-normal">
+                        ({data.items.length} itens)
+                    </span>
+                </div>
+                <span className="font-bold text-emerald-600">
+                    {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.total as number)}
+                </span>
+            </button>
+
+            {isOpen && (
+                <div className="pl-0 md:pl-12 pr-0 md:pr-4 pb-4">
+                    {/* List of Items */}
+                    <div className="grid grid-cols-1 gap-2">
+                        {data.items.map((item: any) => (
+                            <div key={item.id} className="relative bg-white md:bg-slate-50 border border-slate-100 rounded-lg p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:shadow-sm transition-shadow">
+                                {/* Left: Info */}
+                                <div className="flex items-start gap-3">
+                                    <div className="flex flex-col items-center justify-center bg-slate-100 rounded p-2 min-w-[3rem] text-center">
+                                        <span className="text-xs font-bold text-slate-500 uppercase">{MONTH_NAMES[new Date(item.date).getMonth()].substring(0, 3)}</span>
+                                        <span className="text-lg font-bold text-slate-700 leading-none">{new Date(item.date).getDate()}</span>
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-slate-800 line-clamp-1">{item.client?.name || 'Cliente não identificado'}</div>
+                                        <div className="text-xs text-slate-500 line-clamp-1">{item.notes || item.service?.name || item.desc || 'Receita'}</div>
+                                        {/* Mobile Tags */}
+                                        <div className="flex md:hidden gap-2 mt-1">
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${item.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                {item.status === 'received' ? 'Recebido' : 'Pendente'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right: Values & Actions */}
+                                <div className="flex items-center justify-between md:justify-end gap-6 pl-[3.5rem] md:pl-0">
+                                    <div className="text-right">
+                                        <div className="font-bold text-emerald-700">
+                                            {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((item.net_amount || item.amount) as number)}
+                                        </div>
+                                        <span className={`hidden md:inline-block text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${item.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                            {item.status === 'received' ? 'Recebido' : 'Pendente'}
+                                        </span>
+                                    </div>
+
+                                    {/* Actions */}
+                                    {isOwner && (
+                                        <div className="flex items-center gap-1">
+                                            {item.status === 'pending' && (
+                                                <button onClick={() => onMarkReceived(item)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-full" title="Receber">
+                                                    <ICONS.Check />
+                                                </button>
+                                            )}
+                                            <button onClick={() => onDelete(item.id)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full" title="Excluir">
+                                                <ICONS.Trash />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const IncomePageContent: React.FC = () => {
+    const { isOwner, workspace } = useWorkspace();
     const [activeTab, setActiveTab] = useState('Lançamentos');
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -237,7 +371,8 @@ const IncomePage: React.FC = () => {
         return { feeVal, net: tot - feeVal };
     };
 
-    // --- FORECAST LOGIC ---
+    // --- FORECAST LOGIC (Reused from before, but tab logic might change if user wants only this)
+    // Keeping it as existing feature
     const getForecastData = () => {
         const now = new Date();
         const pending = incomes.filter(i => i.status === IncomeStatus.PENDING && new Date(i.date) >= now);
@@ -278,11 +413,8 @@ const IncomePage: React.FC = () => {
 
             {activeTab === 'Lançamentos' && (
                 <>
-
-
-
                     <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
-                        {/* Filters... same as before */}
+                        {/* Filters */}
                         <div className="relative w-full md:w-96">
                             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                                 <ICONS.Search />
@@ -308,119 +440,47 @@ const IncomePage: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Mobile View */}
-                    <div className="block md:hidden">
-                        <MobileDataList
-                            data={filteredIncomes}
-                            title={(item) => item.client?.name || <span className="text-slate-400 italic">Sem cliente</span>}
-                            subtitle={(item) => (
-                                <span className="flex gap-2 text-xs">
-                                    <span>{new Date(item.date).toLocaleDateString('pt-BR')}</span>
-                                    <span>•</span>
-                                    <span>{item.service?.name || 'Serviço Avulso'}</span>
-                                </span>
-                            )}
-                            fields={[
-                                {
-                                    label: 'Valor Líquido',
-                                    value: (item) => <span className="font-bold text-emerald-600">R$ {(item.net_amount || item.amount).toFixed(2)}</span>
-                                },
-                                {
-                                    label: 'Status',
-                                    value: (item) => (
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${item.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                            {item.status === 'received' ? 'Recebido' : 'Pendente'}
-                                        </span>
-                                    )
-                                },
-                                {
-                                    label: 'Método Pagto',
-                                    value: (item) => (
-                                        <span>
-                                            {item.payment_method}
-                                            {item.installment_count && item.installment_count > 1 ? ` (${item.installment_no}/${item.installment_count})` : ''}
-                                        </span>
-                                    )
-                                },
-                                {
-                                    label: 'Observações',
-                                    value: (item) => item.notes || '-'
-                                }
-                            ]}
-                            actions={(item) => isOwner ? (
-                                <>
-                                    {item.status === 'pending' && (
-                                        <button onClick={() => handleMarkReceived(item)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded">
-                                            <ICONS.Check />
-                                        </button>
-                                    )}
-                                    <button onClick={() => handleDelete(item.id)} className="p-2 text-red-400 hover:bg-red-50 rounded">
-                                        <ICONS.Trash />
-                                    </button>
-                                </>
-                            ) : null}
-                        />
-                    </div>
+                    {/* ACCORDION VIEW (Mobile & Desktop) */}
+                    <div className="space-y-4">
+                        {loading ? (
+                            <div className="text-center py-12 text-slate-400">Carregando lançamentos...</div>
+                        ) : filteredIncomes.length === 0 ? (
+                            <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                                Nenhuma receita encontrada.
+                            </div>
+                        ) : (
+                            // Group and Render
+                            (() => {
+                                // 1. Group by Year > Month
+                                const groups: Record<number, Record<number, { items: Income[], total: number }>> = {};
 
-                    {/* Desktop View */}
-                    <div className="hidden md:block bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200 overflow-x-auto">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead className="bg-slate-50 border-b border-slate-200">
-                                    <tr>
-                                        <th className="p-4 font-semibold text-slate-600">Data</th>
-                                        <th className="p-4 font-semibold text-slate-600">Cliente</th>
-                                        <th className="p-4 font-semibold text-slate-600">Detalhes</th>
-                                        <th className="p-4 font-semibold text-slate-600 text-right">Valor Líquido</th>
-                                        <th className="p-4 font-semibold text-slate-600 text-center">Status</th>
-                                        {isOwner && <th className="p-4 font-semibold text-slate-600 text-center">Ações</th>}
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {loading ? <tr><td colSpan={6} className="p-6 text-center">Carregando...</td></tr> :
-                                        filteredIncomes.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-slate-400">Nenhuma receita encontrada.</td></tr> :
-                                            filteredIncomes.map(inc => (
-                                                <tr key={inc.id} className="hover:bg-slate-50">
-                                                    <td className="p-4 text-slate-700 whitespace-nowrap">{new Date(inc.date).toLocaleDateString('pt-BR')}</td>
-                                                    <td className="p-4 font-medium text-slate-800">{inc.client?.name || <span className="text-slate-400 italic">Sem cliente</span>}</td>
-                                                    <td className="p-4 text-slate-600">
-                                                        <div className="flex flex-col">
-                                                            <span className="font-medium text-slate-700">{inc.service?.name || 'Serviço Avulso'}</span>
-                                                            <span className="text-xs text-slate-400">
-                                                                {inc.payment_method}
-                                                                {inc.installment_count && inc.installment_count > 1 ? ` (${inc.installment_no}/${inc.installment_count})` : ''}
-                                                            </span>
-                                                            {inc.fee_amount && inc.fee_amount > 0 ? (
-                                                                <span className="text-xs text-red-400">Taxa: -R$ {inc.fee_amount.toFixed(2)}</span>
-                                                            ) : null}
-                                                        </div>
-                                                    </td>
-                                                    <td className="p-4 text-right font-bold text-emerald-600">
-                                                        R$ {(inc.net_amount || inc.amount).toFixed(2)}
-                                                        {inc.gross_amount && inc.gross_amount !== inc.net_amount && (
-                                                            <div className="text-xs text-slate-400 line-through">Bruto: {inc.gross_amount.toFixed(2)}</div>
-                                                        )}
-                                                    </td>
-                                                    <td className="p-4 text-center">
-                                                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${inc.status === 'received' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                            {inc.status === 'received' ? 'Recebido' : 'Pendente'}
-                                                        </span>
-                                                    </td>
-                                                    {isOwner && (
-                                                        <td className="p-4 text-center flex items-center justify-center gap-2">
-                                                            {inc.status === 'pending' && (
-                                                                <button onClick={() => handleMarkReceived(inc)} className="text-emerald-600 hover:text-emerald-800" title="Marcar como Recebido">
-                                                                    <ICONS.Check />
-                                                                </button>
-                                                            )}
-                                                            <button onClick={() => handleDelete(inc.id)} className="text-slate-400 hover:text-red-500 transition-colors"><ICONS.Trash /></button>
-                                                        </td>
-                                                    )}
-                                                </tr>
-                                            ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                filteredIncomes.forEach(inc => {
+                                    const d = new Date(inc.date);
+                                    const y = d.getFullYear();
+                                    const m = d.getMonth(); // 0-11
+
+                                    if (!groups[y]) groups[y] = {};
+                                    if (!groups[y][m]) groups[y][m] = { items: [], total: 0 };
+
+                                    groups[y][m].items.push(inc);
+                                    groups[y][m].total += (inc.net_amount || inc.amount);
+                                });
+
+                                // Sort Years Descending
+                                const years = Object.keys(groups).map(Number).sort((a, b) => b - a);
+
+                                return years.map(year => (
+                                    <YearAccordion
+                                        key={year}
+                                        year={year}
+                                        monthsData={groups[year]}
+                                        isOwner={isOwner}
+                                        onDelete={handleDelete}
+                                        onMarkReceived={handleMarkReceived}
+                                    />
+                                ));
+                            })()
+                        )}
                     </div>
                 </>
             )}
@@ -486,8 +546,6 @@ const IncomePage: React.FC = () => {
 
             <Drawer title="Nova Venda / Receita" isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)}>
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    {/* ... (Existing Form Content) ... */}
-                    {/* Using abbreviated version for brevity since logic inside handleSubmit already checks isOwner */}
                     {/* 1. Client & Service */}
                     <div className="space-y-4">
                         <div>
@@ -521,7 +579,6 @@ const IncomePage: React.FC = () => {
                             />
                         </div>
                     </div>
-                    {/* ... Rest of form inputs are same ... */}
                     {/* 2. Payment Method Selector */}
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-2">Forma de Pagamento</label>
@@ -541,7 +598,7 @@ const IncomePage: React.FC = () => {
                         {paymentMethod === PaymentMethodType.SPLIT_50_50 && (
                             <div className="space-y-3">
                                 <div className="flex gap-2 items-center text-xs text-slate-500 mb-2"><span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">Entrada 50%</span><span>+</span><span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Entrega 50%</span></div>
-                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Data Entrada (Recebido)</label><input type="date" required className="w-full border border-slate-300 rounded p-2 text-slate-900 bg-white" value={splitDate1} onChange={e => setSplitDate1(e.target.value)} /></div>
+                                <div><label className="block text-sm font-medium text-slate-700 mb-1">Data Entrada (Recebido)</label><input type="date" required className="w-full border border-slate-300 rounded p-2 text-slate-900 bg-white" value={splitDate1} onChange={e => setSplitDate2(e.target.value)} /></div>
                                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Data Entrega (Pendente)</label><input type="date" required className="w-full border border-slate-300 rounded p-2 text-slate-900 bg-white" value={splitDate2} onChange={e => setSplitDate2(e.target.value)} /></div>
                             </div>
                         )}

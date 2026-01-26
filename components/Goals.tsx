@@ -5,6 +5,7 @@ import { getGoals, setGoal, distributeAnnualGoal, getIncomes } from '../services
 import { GoalType, IncomeStatus } from '../types';
 import { PageHeader, Drawer } from './Shared';
 import { ICONS, MONTH_NAMES } from '../constants';
+import { formatBRL2, formatAxisCompact } from '../utils/formatters';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 
 type PeriodType = 'year' | 'half' | 'quarter' | 'month';
@@ -165,18 +166,18 @@ const Goals: React.FC = () => {
                         </h2>
                         <p className="text-slate-600 mt-1">
                             {paceStatus === 'No Ritmo'
-                                ? `Nesse ritmo, você supera a meta em R$ ${Math.abs(diff).toLocaleString('pt-BR')}.`
-                                : `Para bater a meta do período, faltam R$ ${Math.abs(totalGoal - totalActual).toLocaleString('pt-BR')}.`
+                                ? `Nesse ritmo, você supera a meta em ${formatBRL2(Math.abs(diff))}.`
+                                : `Para bater a meta do período, faltam ${formatBRL2(Math.abs(totalGoal - totalActual))}.`
                             }
                         </p>
                     </div>
                     <div className="text-right">
                         <p className="text-sm text-slate-500">Meta do Período</p>
-                        <p className="text-2xl font-bold text-slate-900">R$ {totalGoal.toLocaleString('pt-BR')}</p>
+                        <p className="text-2xl font-bold text-slate-900">{formatBRL2(totalGoal)}</p>
                     </div>
                     <div className="text-right">
                         <p className="text-sm text-slate-500">Realizado</p>
-                        <p className="text-2xl font-bold text-indigo-600">R$ {totalActual.toLocaleString('pt-BR')}</p>
+                        <p className="text-2xl font-bold text-indigo-600">{formatBRL2(totalActual)}</p>
                     </div>
                 </div>
                 {/* Progress Bar */}
@@ -194,8 +195,8 @@ const Goals: React.FC = () => {
                         <AreaChart data={monthlyData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                            <YAxis tickFormatter={v => `${v / 1000}k`} tick={{ fontSize: 12 }} />
-                            <Tooltip formatter={(value: any) => `R$ ${Number(value).toLocaleString('pt-BR')}`} />
+                            <YAxis tickFormatter={formatAxisCompact} tick={{ fontSize: 12 }} />
+                            <Tooltip formatter={(value: any) => formatBRL2(Number(value))} />
                             <Area type="monotone" dataKey="actual" name="Realizado" stroke="#4f46e5" fill="#e0e7ff" strokeWidth={2} />
                             <Area type="monotone" dataKey="goal" name="Meta" stroke="#10b981" fill="none" strokeDasharray="5 5" strokeWidth={2} />
                         </AreaChart>
@@ -221,8 +222,8 @@ const Goals: React.FC = () => {
                                 {monthlyData.map(d => (
                                     <tr key={d.month} className="hover:bg-slate-50">
                                         <td className="p-3 font-medium text-slate-900">{d.month}</td>
-                                        <td className="p-3 text-right text-slate-500">R$ {d.goal.toLocaleString('pt-BR')}</td>
-                                        <td className="p-3 text-right font-bold text-indigo-600">R$ {d.actual.toLocaleString('pt-BR')}</td>
+                                        <td className="p-3 text-right text-slate-500">{formatBRL2(d.goal)}</td>
+                                        <td className="p-3 text-right font-bold text-indigo-600">{formatBRL2(d.actual)}</td>
                                         <td className="p-3 text-center">
                                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${d.statusColor}`}>
                                                 {d.statusLabel}
