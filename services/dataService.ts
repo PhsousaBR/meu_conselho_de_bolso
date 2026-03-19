@@ -1,6 +1,6 @@
 
 import { supabase } from '../supabaseClient';
-import { Client, Service, Income, Expense, Goal, IncomeStatus, GoalType, Campaign, MarketingChannel, FixedCost, PricingSettings, PaymentMethodType, Sale, Workspace, WorkspaceMember, WorkspaceInvite, Role } from '../types';
+import { Client, Service, Income, Expense, Goal, IncomeStatus, GoalType, Campaign, MarketingChannel, FixedCost, PricingSettings, PaymentMethodType, Sale, Workspace, WorkspaceMember, WorkspaceInvite, Role, AuditLogEntry, ExpenseCategory } from '../types';
 
 const LOCAL_KEY = 'conselho_bolso_db';
 
@@ -45,7 +45,15 @@ export const getAvailableWorkspaces = async (): Promise<{ workspace: Workspace, 
         }
     }
 
-    return members.map((m: any) => ({
+    // OPTIMIZATION: Sort memberships so OWNER comes first.
+    // This ensures that default selection logic (pick first) prioritizes own workspace.
+    const sortedMembers = members.sort((a: any, b: any) => {
+        if (a.role === 'owner' && b.role !== 'owner') return -1;
+        if (a.role !== 'owner' && b.role === 'owner') return 1;
+        return 0;
+    });
+
+    return sortedMembers.map((m: any) => ({
         workspace: m.workspace,
         role: m.role,
         ownerName: m.role === 'owner' ? 'Mim' : (ownerMap[m.workspace.owner_id] || 'Outro')
@@ -69,10 +77,9 @@ export const getActiveWorkspace = async (): Promise<{ workspace: Workspace | nul
         active = memberships.find(m => m.workspace.id === storedId);
     }
 
-    // 3. Fallback to first one if no stored valid ID or stored ID invalid
+    // 3. Fallback to first one (Sorted by Owner first in getAvailableWorkspaces)
     if (!active && memberships.length > 0) {
         active = memberships[0];
-        // Auto-update storage if falling back
         if (typeof window !== 'undefined') localStorage.setItem(WORKSPACE_KEY, active.workspace.id);
     }
 
@@ -80,38 +87,11 @@ export const getActiveWorkspace = async (): Promise<{ workspace: Workspace | nul
         return { workspace: active.workspace, role: active.role, userId: session.user.id };
     }
 
-    // 4. No memberships? Fallback: Owned (Legacy/Migration safety)
-    // This part basically creates a membership if you are an owner but not in members table (should rarely happen in new logic)
-    if (!active) {
-        const { data: ws } = await supabase.from('workspaces').select('*').eq('owner_id', session.user.id).limit(1).maybeSingle();
-        if (ws) {
-            await supabase.from('workspace_members').upsert({ workspace_id: ws.id, user_id: session.user.id, role: Role.OWNER }, { onConflict: 'workspace_id, user_id' });
-            return { workspace: ws, role: Role.OWNER, userId: session.user.id };
-        }
-    }
+    // 4. No memberships? 
+    // We removed the auto-create logic from Client Side because it is now handled by DB Triggers (handle_new_user_create_workspace).
+    // If we land here, it means the trigger hasn't fired yet or failed.
+    // We returns null, and the UI should probably show a "Creating workspace..." or "No workspace found" state.
 
-    // AUTO-DEAL: If logged in but no workspace, create one automatically
-    try {
-        const { data: newWs, error: createError } = await supabase.from('workspaces').insert({
-            name: 'Meu Conselho',
-            owner_id: session.user.id,
-            created_at: new Date().toISOString()
-        }).select().single();
-
-        if (newWs && !createError) {
-            // Also insert the member record
-            await supabase.from('workspace_members').insert({
-                workspace_id: newWs.id,
-                user_id: session.user.id,
-                role: Role.OWNER
-            });
-            return { workspace: newWs as unknown as Workspace, role: Role.OWNER, userId: session.user.id };
-        }
-    } catch (err) {
-        console.error("Auto-create workspace failed:", err);
-    }
-
-    // If creation failed, we return properly null (will trigger error in UI, not silent offline)
     return { workspace: null, role: null, userId: session.user.id };
 };
 
@@ -734,9 +714,178 @@ export const distributeAnnualGoal = async (
 export const seedHistoricalRevenue = async (): Promise<string[]> => {
     const { workspace, role, userId } = await getActiveWorkspace();
     if (workspace && role !== Role.OWNER) throw new Error('Apenas dono pode importar histórico.');
-    // ... rest of implementation (using workspace_id) ...
-    // Keeping this brief to save output space, but the logic follows the pattern:
-    // If workspace: insert with workspace_id
-    // If local: insert local
     return ["Função simplificada na migração."];
+};
+
+// ============================================================
+// NEW FEATURES
+// ============================================================
+
+// --- AUDIT LOG (Improvement #11) ---
+export const createAuditEntry = async (
+    action: 'create' | 'update' | 'delete',
+    entityType: string,
+    entityId: string,
+    entityLabel?: string,
+    changes?: Record<string, { old: any; new: any }>
+): Promise<void> => {
+    try {
+        const { workspace, userId } = await getActiveWorkspace();
+        if (!workspace) return; // No audit for local mode
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const userEmail = session?.user?.email || 'unknown';
+
+        await supabase.from('audit_log').insert({
+            workspace_id: workspace.id,
+            user_id: userId,
+            user_email: userEmail,
+            action,
+            entity_type: entityType,
+            entity_id: entityId,
+            entity_label: entityLabel,
+            changes: changes || null
+        });
+    } catch (err) {
+        console.error('Audit log error (non-blocking):', err);
+        // Non-blocking: never let audit errors break the app
+    }
+};
+
+export const getAuditLog = async (limit = 50, offset = 0): Promise<AuditLogEntry[]> => {
+    const { workspace } = await getActiveWorkspace();
+    if (!workspace) return [];
+
+    const { data, error } = await supabase
+        .from('audit_log')
+        .select('*')
+        .eq('workspace_id', workspace.id)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+    return data || [];
+};
+
+// --- EXPENSE CATEGORIES (Improvement #12) ---
+export const getExpenseCategories = async (): Promise<ExpenseCategory[]> => {
+    const { workspace } = await getActiveWorkspace();
+    if (workspace) {
+        const { data } = await supabase
+            .from('expense_categories')
+            .select('*')
+            .eq('workspace_id', workspace.id)
+            .order('name');
+        return data || [];
+    }
+    // Local fallback: hardcoded defaults
+    return [
+        { id: '1', workspace_id: 'local', name: 'Software', color: '#6366f1', created_at: '' },
+        { id: '2', workspace_id: 'local', name: 'Infraestrutura', color: '#f59e0b', created_at: '' },
+        { id: '3', workspace_id: 'local', name: 'Contabilidade', color: '#10b981', created_at: '' },
+        { id: '4', workspace_id: 'local', name: 'Marketing', color: '#ef4444', created_at: '' },
+        { id: '5', workspace_id: 'local', name: 'Pessoal', color: '#3b82f6', created_at: '' },
+        { id: '6', workspace_id: 'local', name: 'Operacional', color: '#8b5cf6', created_at: '' },
+        { id: '7', workspace_id: 'local', name: 'Impostos', color: '#f97316', created_at: '' },
+        { id: '8', workspace_id: 'local', name: 'Outros', color: '#64748b', created_at: '' },
+    ];
+};
+
+export const createExpenseCategory = async (name: string, color?: string): Promise<ExpenseCategory | null> => {
+    const { workspace, role } = await getActiveWorkspace();
+    if (workspace) {
+        if (role !== Role.OWNER) throw new Error('Apenas leitura.');
+        const { data, error } = await supabase
+            .from('expense_categories')
+            .insert({ workspace_id: workspace.id, name, color: color || '#64748b' })
+            .select()
+            .single();
+        if (error) {
+            if (error.code === '23505') throw new Error('Categoria já existe.');
+            throw error;
+        }
+        return data;
+    }
+    return null;
+};
+
+export const deleteExpenseCategory = async (id: string): Promise<void> => {
+    const { workspace, role } = await getActiveWorkspace();
+    if (workspace) {
+        if (role !== Role.OWNER) throw new Error('Apenas leitura.');
+        await supabase.from('expense_categories').delete().eq('id', id).eq('workspace_id', workspace.id);
+    }
+};
+
+// --- GENERATE RECURRING EXPENSES (Improvement #2) ---
+export const generateRecurringExpenses = async (): Promise<{ generated: number; skipped: number }> => {
+    const { workspace, role, userId } = await getActiveWorkspace();
+    if (!workspace || role !== Role.OWNER) return { generated: 0, skipped: 0 };
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+    // 1. Get all recurring expenses (from history, not templates)
+    const { data: allExpenses } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('workspace_id', workspace.id)
+        .eq('is_recurring', true)
+        .eq('is_template', false);
+
+    if (!allExpenses || allExpenses.length === 0) return { generated: 0, skipped: 0 };
+
+    // 2. Get existing expenses for this month to avoid duplicates
+    const monthStart = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+    const monthEnd = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${new Date(currentYear, currentMonth + 1, 0).getDate()}`;
+
+    const { data: existingThisMonth } = await supabase
+        .from('expenses')
+        .select('description, category, amount')
+        .eq('workspace_id', workspace.id)
+        .eq('is_template', false)
+        .gte('date', monthStart)
+        .lte('date', monthEnd);
+
+    const existingSet = new Set(
+        (existingThisMonth || []).map(e => `${e.description}|${e.category}|${Number(e.amount).toFixed(2)}`)
+    );
+
+    let generated = 0;
+    let skipped = 0;
+
+    for (const exp of allExpenses) {
+        const shouldGenerate = exp.recurring_frequency === 'monthly' ||
+            (exp.recurring_frequency === 'yearly' && new Date(exp.date).getMonth() === currentMonth);
+
+        if (!shouldGenerate) continue;
+
+        const key = `${exp.description}|${exp.category}|${Number(exp.amount).toFixed(2)}`;
+        if (existingSet.has(key)) {
+            skipped++;
+            continue;
+        }
+
+        await supabase.from('expenses').insert({
+            user_id: userId,
+            workspace_id: workspace.id,
+            date: todayStr,
+            amount: exp.amount,
+            category: exp.category,
+            description: exp.description,
+            is_recurring: true,
+            recurring_frequency: exp.recurring_frequency,
+            is_template: false
+        });
+
+        generated++;
+    }
+
+    if (generated > 0) {
+        await createAuditEntry('create', 'expense', 'batch', `Geração automática: ${generated} despesas recorrentes`);
+    }
+
+    return { generated, skipped };
 };

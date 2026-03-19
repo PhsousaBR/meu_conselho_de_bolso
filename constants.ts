@@ -107,6 +107,34 @@ export const ICONS = {
   ),
   ChevronRight: () => createSvg(
     React.createElement('polyline', { points: "9 18 15 12 9 6", key: 'p1' })
+  ),
+  Refresh: () => createSvg(
+    React.createElement('polyline', { points: "23 4 23 10 17 10", key: 'p1' }),
+    React.createElement('path', { d: "M20.49 15a9 9 0 1 1-2.12-9.36L23 10", key: 'p2' })
+  ),
+  Clock: () => createSvg(
+    React.createElement('circle', { cx: 12, cy: 12, r: 10, key: 'c1' }),
+    React.createElement('polyline', { points: "12 6 12 12 16 14", key: 'p1' })
+  ),
+  AlertTriangle: () => createSvg(
+    React.createElement('path', { d: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z", key: 'p1' }),
+    React.createElement('line', { x1: 12, y1: 9, x2: 12, y2: 13, key: 'l1' }),
+    React.createElement('line', { x1: 12, y1: 17, x2: 12.01, y2: 17, key: 'l2' })
+  ),
+  TrendingUp: () => createSvg(
+    React.createElement('polyline', { points: "23 6 13.5 15.5 8.5 10.5 1 18", key: 'p1' }),
+    React.createElement('polyline', { points: "17 6 23 6 23 12", key: 'p2' })
+  ),
+  Download: () => createSvg(
+    React.createElement('path', { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", key: 'p1' }),
+    React.createElement('polyline', { points: "7 10 12 15 17 10", key: 'pl1' }),
+    React.createElement('line', { x1: 12, y1: 15, x2: 12, y2: 3, key: 'l1' })
+  ),
+  Users: () => createSvg(
+    React.createElement('path', { d: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2", key: 'p1' }),
+    React.createElement('circle', { cx: 9, cy: 7, r: 4, key: 'c1' }),
+    React.createElement('path', { d: "M23 21v-2a4 4 0 0 0-3-3.87", key: 'p2' }),
+    React.createElement('path', { d: "M16 3.13a4 4 0 0 1 0 7.75", key: 'p3' })
   )
 };
 

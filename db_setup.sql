@@ -349,3 +349,58 @@ begin
   return new;
 end;
 $$ language plpgsql security definer;
+
+-- --- NEW TABLES (Improvements) ---
+
+-- 10. AUDIT LOG Table (Improvement #11)
+create table if not exists audit_log (
+  id uuid default uuid_generate_v4() primary key,
+  workspace_id uuid references workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users not null,
+  user_email text,
+  action text check (action in ('create', 'update', 'delete')) not null,
+  entity_type text not null,
+  entity_id text not null,
+  entity_label text,
+  changes jsonb,
+  created_at timestamptz default now()
+);
+
+-- 11. EXPENSE CATEGORIES Table (Improvement #12)
+create table if not exists expense_categories (
+  id uuid default uuid_generate_v4() primary key,
+  workspace_id uuid references workspaces(id) on delete cascade not null,
+  name text not null,
+  color text default '#6366f1',
+  created_at timestamptz default now(),
+  unique(workspace_id, name)
+);
+
+-- 12. Add leads_count to campaigns (Improvement #8)
+alter table campaigns add column if not exists leads_count int default 0;
+
+-- RLS for new tables
+alter table audit_log enable row level security;
+alter table expense_categories enable row level security;
+
+create policy "View Audit Log" on audit_log for select using (is_workspace_member(workspace_id));
+create policy "Insert Audit Log" on audit_log for insert with check (is_workspace_member(workspace_id));
+
+create policy "View Expense Categories" on expense_categories for select using (is_workspace_member(workspace_id));
+create policy "Mutate Expense Categories" on expense_categories for all using (is_workspace_owner(workspace_id));
+
+-- Seed default expense categories for existing workspaces
+insert into expense_categories (workspace_id, name, color)
+select w.id, cat.name, cat.color
+from workspaces w
+cross join (values
+  ('Software', '#6366f1'),
+  ('Infraestrutura', '#f59e0b'),
+  ('Contabilidade', '#10b981'),
+  ('Marketing', '#ef4444'),
+  ('Pessoal', '#3b82f6'),
+  ('Operacional', '#8b5cf6'),
+  ('Impostos', '#f97316'),
+  ('Outros', '#64748b')
+) as cat(name, color)
+on conflict (workspace_id, name) do nothing;

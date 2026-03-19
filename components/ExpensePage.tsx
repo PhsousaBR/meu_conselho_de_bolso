@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { getExpenses, getExpenseTemplates, createExpense, deleteExpense } from '../services/dataService';
-import { Expense, ExpenseFrequency } from '../types';
+import { getExpenses, getExpenseTemplates, createExpense, deleteExpense, getExpenseCategories, createExpenseCategory } from '../services/dataService';
+import { Expense, ExpenseFrequency, ExpenseCategory } from '../types';
 import { PageHeader, Drawer, Tabs } from './Shared';
 import { ICONS } from '../constants';
 import { useWorkspace } from '../contexts/WorkspaceContext';
@@ -12,6 +12,8 @@ const ExpensePage: React.FC = () => {
     const { isOwner, workspace } = useWorkspace(); // GET WORKSPACE FROM CONTEXT
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [templates, setTemplates] = useState<Expense[]>([]);
+    const [categories, setCategories] = useState<ExpenseCategory[]>([]);
+    const [newCategoryName, setNewCategoryName] = useState('');
     const [activeTab, setActiveTab] = useState('Histórico');
     const [loading, setLoading] = useState(true);
 
@@ -28,9 +30,10 @@ const ExpensePage: React.FC = () => {
 
     const fetchData = async () => {
         setLoading(true);
-        const [exp, tpl] = await Promise.all([getExpenses(), getExpenseTemplates()]);
+        const [exp, tpl, cats] = await Promise.all([getExpenses(), getExpenseTemplates(), getExpenseCategories()]);
         setExpenses(exp.filter(e => !e.is_template));
         setTemplates(tpl);
+        setCategories(cats);
         setLoading(false);
     };
 
@@ -280,7 +283,33 @@ const ExpensePage: React.FC = () => {
                 {/* Same form content */}
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label><input required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} placeholder="Ex: Aluguel, Software X" /></div>
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label><input required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} placeholder="Ex: Operacional, Software" /></div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
+                        <select
+                            required
+                            className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white"
+                            value={formData.category}
+                            onChange={e => {
+                                if (e.target.value === '__new__') {
+                                    const name = prompt('Nome da nova categoria:');
+                                    if (name && name.trim()) {
+                                        createExpenseCategory(name.trim()).then(() => {
+                                            setFormData({ ...formData, category: name.trim() });
+                                            getExpenseCategories().then(setCategories);
+                                        }).catch(err => alert(err.message));
+                                    }
+                                } else {
+                                    setFormData({ ...formData, category: e.target.value });
+                                }
+                            }}
+                        >
+                            <option value="">Selecione uma categoria...</option>
+                            {categories.map(cat => (
+                                <option key={cat.id} value={cat.name}>{cat.name}</option>
+                            ))}
+                            {isOwner && <option value="__new__">+ Nova Categoria</option>}
+                        </select>
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Valor (R$)</label><input type="number" step="0.01" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} /></div>
                         <div><label className="block text-sm font-medium text-slate-700 mb-1">Data</label><input type="date" required className="w-full border border-slate-300 p-2 rounded-lg text-slate-900 bg-white" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} /></div>

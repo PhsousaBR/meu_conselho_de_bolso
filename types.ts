@@ -108,6 +108,8 @@ export interface Campaign {
   roas?: number;
   cac?: number;
   acquired_customers?: number;
+  leads_count?: number; // NEW: For conversion rate tracking
+  conversion_rate?: number; // Computed: acquired_customers / leads_count
 }
 
 export interface Sale {
@@ -202,4 +204,27 @@ export interface PricingSettings {
   monthly_goal: number;
   mp_default_fee_percent: number;
   updated_at: string;
+}
+
+// --- NEW: Audit Log ---
+export interface AuditLogEntry {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  user_email?: string;
+  action: 'create' | 'update' | 'delete';
+  entity_type: string; // 'income' | 'expense' | 'campaign' | 'client' | 'service' | 'goal' | 'fixed_cost'
+  entity_id: string;
+  entity_label?: string; // Human-readable label (e.g., client name, expense description)
+  changes?: Record<string, { old: any; new: any }>; // Only for updates
+  created_at: string;
+}
+
+// --- NEW: Expense Category (Configurable) ---
+export interface ExpenseCategory {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color?: string;
+  created_at: string;
 }

@@ -152,6 +152,79 @@ const ReportsPage: React.FC = () => {
         window.print();
     };
 
+    const handleExportPDF = () => {
+        // Uses the browser's print-to-PDF, which leverages our existing print CSS
+        // This gives a clean, formatted PDF without external dependencies
+        const printWindow = window.open('', '_blank');
+        if (!printWindow || !dataA) return;
+
+        const periodLabel = `${dataA.start.toLocaleDateString('pt-BR')} a ${dataA.end.toLocaleDateString('pt-BR')}`;
+        const profitMargin = dataA.totalRevenue > 0 ? ((dataA.netIncome / dataA.totalRevenue) * 100).toFixed(1) : '0';
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html><head><title>Relatório ${reportType} - Conselho de Bolso</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 40px; color: #1e293b; }
+                h1 { font-size: 24px; margin-bottom: 4px; }
+                h2 { font-size: 18px; margin-top: 32px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+                .subtitle { color: #64748b; font-size: 14px; margin-bottom: 32px; }
+                .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+                .kpi { border: 1px solid #e2e8f0; padding: 16px; border-radius: 8px; }
+                .kpi-label { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+                .kpi-value { font-size: 20px; font-weight: bold; }
+                .green { color: #059669; } .red { color: #dc2626; } .blue { color: #4f46e5; }
+                table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+                th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+                th { background: #f8fafc; font-weight: 600; color: #64748b; }
+                .text-right { text-align: right; }
+                .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; }
+                @media print { body { padding: 20px; } }
+            </style></head><body>
+            <h1>Relatório: ${reportType}</h1>
+            <p class="subtitle">Período: ${periodLabel} | Gerado em ${new Date().toLocaleDateString('pt-BR')}</p>
+
+            <div class="kpi-grid">
+                <div class="kpi"><div class="kpi-label">Receita Total</div><div class="kpi-value green">R$ ${dataA.totalRevenue.toLocaleString('pt-BR')}</div></div>
+                <div class="kpi"><div class="kpi-label">Despesas</div><div class="kpi-value red">R$ ${dataA.totalExpenses.toLocaleString('pt-BR')}</div></div>
+                <div class="kpi"><div class="kpi-label">Lucro Líquido</div><div class="kpi-value blue">R$ ${dataA.netIncome.toLocaleString('pt-BR')}</div></div>
+            </div>
+
+            <h2>Top 5 Fontes de Receita</h2>
+            <table>
+                <thead><tr><th>Cliente</th><th class="text-right">Receita</th><th class="text-right">% do Total</th></tr></thead>
+                <tbody>
+                    ${dataA.byClient.map((c: any) => `<tr><td>${c[0]}</td><td class="text-right">R$ ${c[1].toLocaleString('pt-BR')}</td><td class="text-right">${dataA.totalRevenue > 0 ? ((c[1] / dataA.totalRevenue) * 100).toFixed(1) : 0}%</td></tr>`).join('')}
+                    ${dataA.byClient.length === 0 ? '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">Sem dados</td></tr>' : ''}
+                </tbody>
+            </table>
+
+            <h2>Top 5 Categorias de Despesa</h2>
+            <table>
+                <thead><tr><th>Categoria</th><th class="text-right">Valor</th><th class="text-right">% do Total</th></tr></thead>
+                <tbody>
+                    ${dataA.byCategory.map((c: any) => `<tr><td>${c[0]}</td><td class="text-right">R$ ${c[1].toLocaleString('pt-BR')}</td><td class="text-right">${dataA.totalExpenses > 0 ? ((c[1] / dataA.totalExpenses) * 100).toFixed(1) : 0}%</td></tr>`).join('')}
+                    ${dataA.byCategory.length === 0 ? '<tr><td colspan="3" style="text-align:center;color:#94a3b8;">Sem dados</td></tr>' : ''}
+                </tbody>
+            </table>
+
+            <h2>Insights</h2>
+            <ul>
+                <li>Margem de Lucro: <strong>${profitMargin}%</strong></li>
+                <li>Maior Despesa: <strong>${dataA.byCategory[0]?.[0] || 'N/A'}</strong> (R$ ${dataA.byCategory[0]?.[1]?.toLocaleString('pt-BR') || '0'})</li>
+                <li>Total de Receitas: <strong>${dataA.countIncomes}</strong> lançamentos</li>
+                <li>Total de Despesas: <strong>${dataA.countExpenses}</strong> lançamentos</li>
+            </ul>
+
+            <div class="footer">
+                Conselho de Bolso - Relatório gerado automaticamente
+            </div>
+            </body></html>
+        `);
+        printWindow.document.close();
+        setTimeout(() => { printWindow.print(); }, 500);
+    };
+
     const handleExportCSV = () => {
         if (!dataA) return;
 
@@ -195,6 +268,9 @@ const ReportsPage: React.FC = () => {
                         <div className="flex gap-2">
                             <button onClick={handleExportCSV} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 md:px-4 md:py-2 rounded-lg hover:bg-slate-50 font-medium text-xs md:text-sm flex items-center gap-2">
                                 <ICONS.FileText /> <span className="hidden md:inline">Exportar CSV</span><span className="md:hidden">CSV</span>
+                            </button>
+                            <button onClick={handleExportPDF} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 md:px-4 md:py-2 rounded-lg hover:bg-slate-50 font-medium text-xs md:text-sm flex items-center gap-2">
+                                <ICONS.FileText /> <span className="hidden md:inline">Exportar PDF</span><span className="md:hidden">PDF</span>
                             </button>
                             <button onClick={handlePrint} className="bg-indigo-600 text-white px-3 py-2 md:px-4 md:py-2 rounded-lg hover:bg-indigo-700 font-medium text-xs md:text-sm flex items-center gap-2">
                                 <span>Imprimir</span>

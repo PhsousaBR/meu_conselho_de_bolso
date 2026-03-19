@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { getIncomes, getExpenses, getGoals, getCampaigns } from '../services/dataService';
-import { Income, Expense, Goal, IncomeStatus, Campaign } from '../types';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Line, ComposedChart, Legend } from 'recharts';
+import { getIncomes, getExpenses, getGoals, getCampaigns, getPricingSettings, generateRecurringExpenses } from '../services/dataService';
+import { Income, Expense, Goal, IncomeStatus, Campaign, PricingSettings } from '../types';
 import { MONTH_NAMES, ICONS } from '../constants';
 import { formatAxisCompact, formatBRL2 } from '../utils/formatters';
 import Link from 'next/link';
@@ -14,14 +14,21 @@ const Dashboard: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [currentGoal, setCurrentGoal] = useState<Goal | null>(null);
+  const [pricingSettings, setPricingSettings] = useState<PricingSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recurringStatus, setRecurringStatus] = useState<{ generated: number; skipped: number } | null>(null);
 
-  const { workspace } = useWorkspace(); // Get workspace
+  const { workspace, isOwner } = useWorkspace();
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [inc, exp, cmp] = await Promise.all([getIncomes(), getExpenses(), getCampaigns()]);
+        const [inc, exp, cmp, settings] = await Promise.all([
+          getIncomes(),
+          getExpenses(),
+          getCampaigns(),
+          getPricingSettings()
+        ]);
         const now = new Date();
         const goal = await getGoals(now.getFullYear()).then(goals => goals.find(g => g.month === now.getMonth() + 1) || null);
 
@@ -29,6 +36,22 @@ const Dashboard: React.FC = () => {
         setExpenses(exp);
         setCampaigns(cmp);
         setCurrentGoal(goal);
+        setPricingSettings(settings);
+
+        // Auto-generate recurring expenses (Improvement #2)
+        if (isOwner) {
+          try {
+            const result = await generateRecurringExpenses();
+            if (result.generated > 0) {
+              setRecurringStatus(result);
+              // Refresh expenses after generation
+              const refreshedExp = await getExpenses();
+              setExpenses(refreshedExp);
+            }
+          } catch (err) {
+            console.error('Recurring expenses generation error:', err);
+          }
+        }
       } catch (err) {
         console.error(err);
       } finally {
@@ -58,7 +81,6 @@ const Dashboard: React.FC = () => {
     return d.getMonth() === currentMonthIdx && d.getFullYear() === currentYear;
   });
 
-  // UPDATED: Use net_amount if available, fallback to amount
   const getAmount = (i: Income) => i.net_amount !== undefined ? Number(i.net_amount) : Number(i.amount);
 
   const totalIncome = thisMonthIncomes
@@ -72,11 +94,22 @@ const Dashboard: React.FC = () => {
   const totalExpenses = thisMonthExpenses.reduce((acc, curr) => acc + Number(curr.amount), 0);
   const balance = totalIncome - totalExpenses;
 
+  // --- IMPROVEMENT #4: Lucro Líquido Real (com impostos) ---
+  const taxPercent = pricingSettings?.tax_percent || 0;
+  const estimatedTax = totalIncome * (taxPercent / 100);
+  const realNetProfit = totalIncome - totalExpenses - estimatedTax;
+
   // --- COMPASS LOGIC ---
   const goalTarget = currentGoal?.target_amount || 0;
   const goalProgressPct = goalTarget > 0 ? Math.min((totalIncome / goalTarget) * 100, 100) : 0;
   const goalRemaining = Math.max(goalTarget - totalIncome, 0);
-  const dailyPaceNeeded = goalRemaining / (daysInMonth - daysPassed + 1); // Amount needed per day for rest of month
+  const dailyPaceNeeded = goalRemaining / (daysInMonth - daysPassed + 1);
+
+  // --- IMPROVEMENT #3: Alertas de Receitas Vencidas ---
+  const overdueIncomes = incomes.filter(i =>
+    i.status === IncomeStatus.PENDING && new Date(i.date) < now
+  );
+  const overdueTotal = overdueIncomes.reduce((acc, curr) => acc + getAmount(curr), 0);
 
   // --- FUTURE CASH FLOW (90 Days) ---
   const futureCutoff = new Date();
@@ -90,11 +123,83 @@ const Dashboard: React.FC = () => {
     .filter(i => i.status === IncomeStatus.PENDING && new Date(i.date) >= now && new Date(i.date) <= futureCutoff)
     .length;
 
+  // --- IMPROVEMENT #1: Fluxo de Caixa Combinado (3 meses) ---
+  const cashFlowProjection = Array.from({ length: 3 }, (_, i) => {
+    const d = new Date(currentYear, currentMonthIdx + i, 1);
+    const m = d.getMonth();
+    const y = d.getFullYear();
+    const label = `${MONTH_NAMES[m]}/${y.toString().slice(2)}`;
+
+    // Income: confirmed + pending for this month
+    const monthIncReceived = incomes
+      .filter(inc => {
+        const id = new Date(inc.date);
+        return id.getMonth() === m && id.getFullYear() === y && inc.status === IncomeStatus.RECEIVED;
+      })
+      .reduce((sum, inc) => sum + getAmount(inc), 0);
+
+    const monthIncPending = incomes
+      .filter(inc => {
+        const id = new Date(inc.date);
+        return id.getMonth() === m && id.getFullYear() === y && inc.status === IncomeStatus.PENDING;
+      })
+      .reduce((sum, inc) => sum + getAmount(inc), 0);
+
+    // Expenses: actual + recurring projections
+    const monthExpActual = expenses
+      .filter(e => !e.is_recurring)
+      .filter(e => {
+        const ed = new Date(e.date);
+        return ed.getMonth() === m && ed.getFullYear() === y;
+      })
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+
+    const monthExpRecurring = expenses
+      .filter(e => e.is_recurring)
+      .reduce((sum, e) => {
+        if (e.recurring_frequency === 'monthly') return sum + Number(e.amount);
+        if (e.recurring_frequency === 'yearly' && new Date(e.date).getMonth() === m) return sum + Number(e.amount);
+        return sum;
+      }, 0);
+
+    const totalRev = monthIncReceived + monthIncPending;
+    const totalExp = monthExpActual + monthExpRecurring;
+    const saldo = totalRev - totalExp;
+
+    return {
+      month: label,
+      receitas: totalRev,
+      receitasConfirmadas: monthIncReceived,
+      receitasPendentes: monthIncPending,
+      despesas: totalExp,
+      saldo,
+      isPositive: saldo >= 0
+    };
+  });
 
   // --- ACTION CENTER LOGIC ---
   const actions: { type: 'alert' | 'warning' | 'good' | 'info', text: string, link: string, value?: string }[] = [];
 
-  // 1. Marketing Insights (Priority)
+  // 0. Overdue Income Alert (NEW - Improvement #3)
+  if (overdueIncomes.length > 0) {
+    actions.push({
+      type: 'alert',
+      text: `${overdueIncomes.length} receita(s) vencida(s) sem recebimento. Cobre ou atualize o status.`,
+      link: '/receitas',
+      value: formatBRL2(overdueTotal)
+    });
+  }
+
+  // 1. Recurring Expenses Generated
+  if (recurringStatus && recurringStatus.generated > 0) {
+    actions.push({
+      type: 'info',
+      text: `${recurringStatus.generated} despesa(s) recorrente(s) foram geradas automaticamente para este mês.`,
+      link: '/despesas'
+    });
+  }
+
+  // 2. Marketing Insights
   const activeCampaigns = campaigns.filter(c => !c.end_date || new Date(c.end_date) >= now);
 
   if (activeCampaigns.length > 0) {
@@ -107,25 +212,20 @@ const Dashboard: React.FC = () => {
       const customersAcquired = incomes.filter(i => i.campaign_id === c.id && i.customer_acquired).length;
       const cac = customersAcquired > 0 ? c.spend / customersAcquired : 0;
 
-      // High Spend, Zero Return
       if (c.spend > 500 && attributedRevenue === 0) {
         actions.push({
           type: 'alert',
           text: `A campanha "${c.name}" gastou R$ ${c.spend} sem retorno. Revise urgentemente.`,
           link: '/marketing'
         });
-      }
-      // High ROAS (Scaling Opportunity)
-      else if (roas > 5) {
+      } else if (roas > 5) {
         actions.push({
           type: 'good',
           text: `Oportunidade: "${c.name}" tem ROAS excelente (${roas.toFixed(1)}x). Considere aumentar o orçamento.`,
           link: '/marketing',
           value: `ROAS ${roas.toFixed(1)}x`
         });
-      }
-      // Low ROAS
-      else if (c.spend > 200 && roas < 1.5) {
+      } else if (c.spend > 200 && roas < 1.5) {
         actions.push({
           type: 'warning',
           text: `Desempenho baixo em "${c.name}". O retorno está cobrindo pouco o investimento.`,
@@ -133,7 +233,6 @@ const Dashboard: React.FC = () => {
           value: `ROAS ${roas.toFixed(1)}x`
         });
       }
-      // High CAC Alert
       if (cac > 200 && customersAcquired > 0) {
         actions.push({
           type: 'warning',
@@ -147,7 +246,7 @@ const Dashboard: React.FC = () => {
     actions.push({ type: 'info', text: 'Sem campanhas ativas. O marketing é o motor do crescimento.', link: '/marketing' });
   }
 
-  // 2. Pending Income
+  // 3. Pending Income
   if (pendingIncome > 0) {
     actions.push({
       type: 'warning',
@@ -157,7 +256,7 @@ const Dashboard: React.FC = () => {
     });
   }
 
-  // 3. Goal Pace
+  // 4. Goal Pace
   if (goalTarget > 0) {
     const idealPacePct = (daysPassed / daysInMonth) * 100;
     if (totalIncome < goalTarget && goalProgressPct < idealPacePct - 15) {
@@ -177,7 +276,7 @@ const Dashboard: React.FC = () => {
     actions.push({ type: 'info', text: 'Defina uma meta para ativar a Bússola Financeira.', link: '/metas' });
   }
 
-  // Chart Data (Last 12 Months)
+  // --- IMPROVEMENT #7: Chart Data Dual (Last 12 Months - Revenue + Expenses) ---
   const chartData = Array.from({ length: 12 }, (_, i) => {
     const d = new Date();
     d.setMonth(d.getMonth() - (11 - i));
@@ -192,7 +291,14 @@ const Dashboard: React.FC = () => {
       })
       .reduce((sum, inc) => sum + getAmount(inc), 0);
 
-    return { name: label, value: monthlyIncome };
+    const monthlyExpenses = expenses
+      .filter(exp => {
+        const edate = new Date(exp.date);
+        return edate.getMonth() === month && edate.getFullYear() === year;
+      })
+      .reduce((sum, exp) => sum + Number(exp.amount), 0);
+
+    return { name: label, receita: monthlyIncome, despesa: monthlyExpenses };
   });
 
   return (
@@ -238,7 +344,7 @@ const Dashboard: React.FC = () => {
             {goalTarget > 0 ? (
               totalIncome >= goalTarget ? (
                 <div>
-                  <p className="text-emerald-400 font-bold text-lg mb-1">Meta Batida! 🚀</p>
+                  <p className="text-emerald-400 font-bold text-lg mb-1">Meta Batida!</p>
                   <p className="text-xs text-slate-300">Você superou o objetivo do mês.</p>
                 </div>
               ) : (
@@ -260,8 +366,8 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* KPIs Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* KPIs Grid - UPDATED with Real Net Profit and Overdue Alert */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
           <div className="flex justify-between items-start">
             <div>
@@ -293,7 +399,26 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
         </div>
-        {/* New Future Cash Flow Card */}
+
+        {/* NEW: Real Net Profit (Improvement #4) */}
+        <div className={`p-4 rounded-xl shadow-sm border ${realNetProfit >= 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-200'}`}>
+          <div className="flex justify-between items-start">
+            <div>
+              <p className={`text-sm mb-1 ${realNetProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Lucro Real</p>
+              <p className={`text-2xl font-bold ${realNetProfit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                {formatBRL2(realNetProfit)}
+              </p>
+              <p className={`text-[10px] mt-1 ${realNetProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                Impostos ({taxPercent}%): -{formatBRL2(estimatedTax)}
+              </p>
+            </div>
+            <div className={`p-2 rounded-lg ${realNetProfit >= 0 ? 'bg-white text-emerald-600' : 'bg-white text-red-600'}`}>
+              <ICONS.TrendingUp />
+            </div>
+          </div>
+        </div>
+
+        {/* Future Cash Flow Card */}
         <div className="bg-emerald-50 p-4 rounded-xl shadow-sm border border-emerald-100">
           <div className="flex justify-between items-start">
             <div>
@@ -306,23 +431,93 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* NEW: Overdue Income Alert Banner */}
+      {overdueIncomes.length > 0 && (
+        <Link href="/receitas" className="block bg-red-50 border border-red-200 rounded-xl p-4 hover:bg-red-100 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+              <ICONS.AlertTriangle />
+            </div>
+            <div className="flex-1">
+              <p className="font-bold text-red-800">
+                {overdueIncomes.length} receita(s) vencida(s) - {formatBRL2(overdueTotal)}
+              </p>
+              <p className="text-sm text-red-600">
+                Existem receitas com data passada ainda marcadas como &quot;Pendente&quot;. Clique para verificar.
+              </p>
+            </div>
+            <ICONS.ChevronRight />
+          </div>
+        </Link>
+      )}
+
+      {/* IMPROVEMENT #1: Cash Flow Projection (3 Months) */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h2 className="text-lg font-semibold mb-4 text-slate-800 flex items-center gap-2">
+          <ICONS.TrendingUp /> Fluxo de Caixa Projetado (3 Meses)
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {cashFlowProjection.map((cf, idx) => (
+            <div key={idx} className={`p-4 rounded-xl border ${cf.isPositive ? 'border-emerald-100 bg-emerald-50/50' : 'border-red-100 bg-red-50/50'}`}>
+              <h4 className="font-bold text-slate-600 uppercase text-xs tracking-wider mb-3">{cf.month}</h4>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Receitas Confirmadas</span>
+                  <span className="font-medium text-emerald-600">{formatBRL2(cf.receitasConfirmadas)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Receitas Pendentes</span>
+                  <span className="font-medium text-amber-600">{formatBRL2(cf.receitasPendentes)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Despesas Previstas</span>
+                  <span className="font-medium text-red-600">-{formatBRL2(cf.despesas)}</span>
+                </div>
+                <div className="border-t border-slate-200 pt-2 flex justify-between">
+                  <span className="font-bold text-slate-700">Saldo Projetado</span>
+                  <span className={`font-bold text-lg ${cf.isPositive ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {formatBRL2(cf.saldo)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Chart */}
+        {/* IMPROVEMENT #7: Dual Chart (Revenue + Expenses) */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200 h-96">
-          <h2 className="text-lg font-semibold mb-4 text-slate-800">Histórico de Receita</h2>
+          <h2 className="text-lg font-semibold mb-4 text-slate-800">Receitas vs Despesas (12 Meses)</h2>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={formatAxisCompact} />
               <Tooltip
                 cursor={{ fill: '#f1f5f9' }}
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                formatter={(value: number) => [formatBRL2(value), 'Receita']}
+                formatter={(value: number, name: string) => [
+                  formatBRL2(value),
+                  name === 'receita' ? 'Receita' : 'Despesa'
+                ]}
+              />
+              <Legend
+                formatter={(value) => value === 'receita' ? 'Receita' : 'Despesa'}
+                iconType="circle"
               />
               <ReferenceLine y={currentGoal?.target_amount || 0} stroke="#10b981" strokeDasharray="3 3" label="Meta" />
-              <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <Bar dataKey="receita" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              <Line
+                type="monotone"
+                dataKey="despesa"
+                stroke="#ef4444"
+                strokeWidth={2}
+                dot={{ fill: '#ef4444', r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
 
@@ -333,7 +528,7 @@ const Dashboard: React.FC = () => {
             <h2 className="text-lg font-bold text-indigo-900 mb-4 flex items-center gap-2">
               <ICONS.Bolt /> Central de Ações
             </h2>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[280px] overflow-y-auto">
               {actions.length === 0 ? (
                 <p className="text-sm text-slate-500">Nenhuma ação pendente.</p>
               ) : (
